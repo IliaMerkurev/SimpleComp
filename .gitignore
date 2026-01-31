@@ -1,0 +1,36 @@
+# Unreal Engine 5 Plugin .gitignore
+
+# Build Artifacts
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Build/           # UE sometimes creates extra build folders
+
+# IDE / Editor Files
+.vs/
+.idea/
+.vscode/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.user
+*.VC.db
+*.VC.opendb
+
+# Temporary / Log Files
+*.tmp
+*.log
+*.iws
+*.swp
+
+# OS Generated
+Thumbs.db
+.DS_Store
+
+# Ignore plugin-specific binary files
+*.dll
+*.lib
+*.exp
+*.pdb
