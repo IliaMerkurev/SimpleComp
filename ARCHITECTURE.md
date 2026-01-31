@@ -24,6 +24,7 @@
 | `USCRotationComponent` | Movement | Rotates actors/meshes parametrically. |
 | `USCSphereRollComponent` | Movement | Rolls spheres based on delta location (Visual-only physics). |
 | `USCWheelComponent` | Movement | Wheel logic (Base for vehicles/carts). |
+| `USCFollowConstraintComponent` | Movement | Constrains actor distance to a target with smoothed rotation. |
 | `USCSpawnerComponent` | Spawning | Universal actor spawner with transform control. |
 
 ## 🧪 Implementation Guidelines
