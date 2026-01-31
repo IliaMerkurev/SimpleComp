@@ -15,8 +15,18 @@
 - **Class Prefix**: `SC` (e.g., `USCRotationComponent`).
 - **File Names**: Match class names (e.g., `SCRotationComponent.h`).
 - **Folder Structure**:
-    - `Source/SimpleComp/Public/Components/Movement/`
-    - `Source/SimpleComp/Public/Components/Spawning/`
+    - `.../Public/Core/`: Shared types and base enums.
+    - `.../Public/Components/Movement/`: Movement-related logic.
+    - `.../Public/Components/Spawning/`: Spawning-related logic.
+
+## 💎 Core Types
+To ensure consistency across the toolkit, shared data structures are centralized in `SCTypes.h`.
+
+| Type | Nature | Description |
+| :--- | :--- | :--- |
+| `ESCAxisMode` | Enum | Standardizes per-axis behavior: `Free`, `Limited`, or `Locked`. |
+| `ESCRotationMode` | Enum | Logic for rotation calculation (Target, Velocity, Forward Delta, etc). |
+| `FSCAxisSettings` | Struct | Universal configuration for a single axis (Mode + Min/Max range). |
 
 ## 📦 Component Registry (Indexed)
 | Class Name | Type | Purpose |

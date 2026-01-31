@@ -4,6 +4,13 @@
 USCFollowConstraintComponent::USCFollowConstraintComponent() {
   PrimaryComponentTick.bCanEverTick = true;
   PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
+
+  // Default to XY behavior (Z Locked)
+  ZAxisSettings.Mode = ESCAxisMode::Locked;
+
+  // Default to Yaw-only rotation
+  PitchSettings.Mode = ESCAxisMode::Locked;
+  RollSettings.Mode = ESCAxisMode::Locked;
 }
 
 void USCFollowConstraintComponent::BeginPlay() {
@@ -27,17 +34,36 @@ void USCFollowConstraintComponent::TickComponent(
   const FVector TargetLoc = FollowTarget->GetActorLocation();
   const FVector CurrentLoc = Owner->GetActorLocation();
 
-  // Project positions to XY plane to maintain vertical height if needed
-  FVector TargetXY = FVector(TargetLoc.X, TargetLoc.Y, 0.0f);
-  FVector CurrentXY = FVector(CurrentLoc.X, CurrentLoc.Y, 0.0f);
+  // 1. Calculate Target XY/Z based on constraints
+  // We only care about direction if the distance is exceeded
+  FVector Direction = CurrentLoc - TargetLoc;
 
-  FVector Direction = CurrentXY - TargetXY;
-  const float CurrentDistance = Direction.Size();
+  // Apply per-axis locking/limiting to the relative direction vector
+  FVector ClampedDir;
+  ClampedDir.X =
+      (XAxisSettings.Mode == ESCAxisMode::Locked) ? 0.0f : Direction.X;
+  ClampedDir.Y =
+      (YAxisSettings.Mode == ESCAxisMode::Locked) ? 0.0f : Direction.Y;
+  ClampedDir.Z =
+      (ZAxisSettings.Mode == ESCAxisMode::Locked) ? 0.0f : Direction.Z;
+
+  const float CurrentDistance = ClampedDir.Size();
 
   if (CurrentDistance > RopeLength) {
     // 1. Calculate and set the new position based on RopeLength constraint
-    FVector NewXY = TargetXY + (Direction.GetSafeNormal() * RopeLength);
-    FVector NewLocation = FVector(NewXY.X, NewXY.Y, CurrentLoc.Z);
+    FVector NewRelativeLoc = ClampedDir.GetSafeNormal() * RopeLength;
+
+    FVector NewLocation;
+    NewLocation.X = (XAxisSettings.Mode == ESCAxisMode::Locked)
+                        ? CurrentLoc.X
+                        : TargetLoc.X + NewRelativeLoc.X;
+    NewLocation.Y = (YAxisSettings.Mode == ESCAxisMode::Locked)
+                        ? CurrentLoc.Y
+                        : TargetLoc.Y + NewRelativeLoc.Y;
+    NewLocation.Z = (ZAxisSettings.Mode == ESCAxisMode::Locked)
+                        ? CurrentLoc.Z
+                        : TargetLoc.Z + NewRelativeLoc.Z;
+
     Owner->SetActorLocation(NewLocation);
 
     // 2. Calculate rotation based on movement delta
@@ -46,19 +72,38 @@ void USCFollowConstraintComponent::TickComponent(
     if (MoveDelta.SizeSquared() > KINDA_SMALL_NUMBER) {
       // Create a target Quaternion from the movement direction
       FQuat TargetQuat = MoveDelta.ToOrientationQuat();
-
-      // Force the Quaternion to only represent Yaw rotation (Zero out Pitch and
-      // Roll)
       FRotator TargetRotator = TargetQuat.Rotator();
-      TargetQuat = FRotator(0.0f, TargetRotator.Yaw, 0.0f).Quaternion();
 
+      // Apply rotation constraints
+      FRotator FinalRotator;
+      FinalRotator.Pitch = (PitchSettings.Mode == ESCAxisMode::Locked)
+                               ? Owner->GetActorRotation().Pitch
+                               : TargetRotator.Pitch;
+      FinalRotator.Yaw = (YawSettings.Mode == ESCAxisMode::Locked)
+                             ? Owner->GetActorRotation().Yaw
+                             : TargetRotator.Yaw;
+      FinalRotator.Roll = (RollSettings.Mode == ESCAxisMode::Locked)
+                              ? Owner->GetActorRotation().Roll
+                              : TargetRotator.Roll;
+
+      // Handle 'Limited' mode if needed (could be expanded)
+      if (PitchSettings.Mode == ESCAxisMode::Limited)
+        FinalRotator.Pitch = FMath::Clamp(FinalRotator.Pitch, PitchSettings.Min,
+                                          PitchSettings.Max);
+      if (YawSettings.Mode == ESCAxisMode::Limited)
+        FinalRotator.Yaw =
+            FMath::Clamp(FinalRotator.Yaw, YawSettings.Min, YawSettings.Max);
+      if (RollSettings.Mode == ESCAxisMode::Limited)
+        FinalRotator.Roll =
+            FMath::Clamp(FinalRotator.Roll, RollSettings.Min, RollSettings.Max);
+
+      FQuat FinalQuat = FinalRotator.Quaternion();
       FQuat CurrentQuat = Owner->GetActorQuat();
 
-      // Slerp (Spherical Linear Interpolation) for perfectly smooth rotation
-      // transition
+      // Slerp for smooth rotation
       float LerpAlpha =
           FMath::Clamp(DeltaTime * RotationSmoothness, 0.0f, 1.0f);
-      FQuat NewQuat = FQuat::Slerp(CurrentQuat, TargetQuat, LerpAlpha);
+      FQuat NewQuat = FQuat::Slerp(CurrentQuat, FinalQuat, LerpAlpha);
 
       Owner->SetActorRotation(NewQuat);
     }
