@@ -145,6 +145,15 @@ void UK2Node_PlaySCAnimation::ReconstructNode() {
   Super::ReconstructNode();
 }
 
+void UK2Node_PlaySCAnimation::PreloadRequiredAssets() {
+  if (AnimSequence) {
+    PreloadObject(AnimSequence);
+    // Ensure pins are reconstructed after force-loading the asset
+    ReconstructNode();
+  }
+  Super::PreloadRequiredAssets();
+}
+
 void UK2Node_PlaySCAnimation::PinDefaultValueChanged(UEdGraphPin *Pin) {
   Super::PinDefaultValueChanged(Pin);
 
