@@ -60,6 +60,11 @@ void USCAnimAsyncAction::ReverseFromCurrent() {
 }
 
 void USCAnimAsyncAction::HandleUpdate(float CurrentTime, float NormalizedTime) {
+  if (TargetComponent && TargetComponent->AnimSequence != TargetSequence) {
+    Cleanup();
+    return;
+  }
+
   Update.Broadcast(NAME_None, static_cast<double>(CurrentTime),
                    static_cast<double>(NormalizedTime));
 }
@@ -68,9 +73,17 @@ void USCAnimAsyncAction::HandleFinished() {
   float FinalTime =
       TargetComponent ? TargetComponent->GetPlaybackPosition() : 0.0f;
   Finished.Broadcast(NAME_None, static_cast<double>(FinalTime), 1.0);
+
+  // Clean up bindings to prevent duplicate events on next run
+  Cleanup();
 }
 
 void USCAnimAsyncAction::HandleNotify(FName NotifyName) {
+  if (TargetComponent && TargetComponent->AnimSequence != TargetSequence) {
+    Cleanup();
+    return;
+  }
+
   OnNotify.Broadcast(
       NotifyName,
       static_cast<double>(

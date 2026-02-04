@@ -50,38 +50,38 @@ public:
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
   ESCTransformSpace TransformSpace = ESCTransformSpace::Local;
 
-  UPROPERTY(BlueprintAssignable, Category = "Animation")
+  UPROPERTY(BlueprintAssignable, Category = "SimpleComp|Animation")
   FSCAnimFinishedSignature OnAnimationFinished;
 
-  UPROPERTY(BlueprintAssignable, Category = "Animation")
+  UPROPERTY(BlueprintAssignable, Category = "SimpleComp|Animation")
   FSCAnimNotifySignature OnAnimationNotify;
 
-  UPROPERTY(BlueprintAssignable, Category = "Animation")
+  UPROPERTY(BlueprintAssignable, Category = "SimpleComp|Animation")
   FSCAnimUpdateSignature OnAnimationUpdate;
 
-  UFUNCTION(BlueprintCallable, Category = "Animation")
+  UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Play();
 
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void PlayEx(USCAnimSequence *Sequence, float Duration = -1.0f,
               bool bFromStart = true, bool bReverse = false);
 
-  UFUNCTION(BlueprintCallable, Category = "Animation")
+  UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void PlayFromStart();
 
-  UFUNCTION(BlueprintCallable, Category = "Animation")
+  UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Stop();
 
-  UFUNCTION(BlueprintCallable, Category = "Animation")
+  UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Pause();
 
-  UFUNCTION(BlueprintCallable, Category = "Animation")
+  UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Resume();
 
-  UFUNCTION(BlueprintCallable, Category = "Animation")
+  UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void ReverseFromEnd();
 
-  UFUNCTION(BlueprintCallable, Category = "Animation")
+  UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void ReverseFromCurrent();
 
   UFUNCTION(BlueprintPure, Category = "SimpleComp|Animation")

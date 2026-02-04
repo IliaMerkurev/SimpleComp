@@ -380,7 +380,11 @@ void UK2Node_PlaySCAnimation::ExpandNode(
         for (const FSCAnimNotify &Notify : AnimSequence->Notifies) {
           Switch->AddPinToSwitchNode();
           UEdGraphPin *SwPin = Switch->Pins.Last();
-          SwPin->DefaultValue = Notify.NotifyName.ToString();
+          // Ensure PinName matches the NotifyName for the Switch to route
+          // correctly
+          SwPin->PinName = Notify.NotifyName;
+          SwPin->PinFriendlyName = FText::FromName(Notify.NotifyName);
+
           ConnectInternalOutputToUserOutput(SwPin, Notify.NotifyName);
         }
       }
