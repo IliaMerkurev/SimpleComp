@@ -1,11 +1,14 @@
 #include "Components/Animation/SCCurveAnimComponent.h"
 #include "Components/Animation/SCAnimSequence.h"
 #include "Curves/CurveFloat.h"
-#include "Curves/CurveVector.h"
 
 USCCurveAnimComponent::USCCurveAnimComponent() {
   PrimaryComponentTick.bCanEverTick = true;
   PrimaryComponentTick.bStartWithTickEnabled = true;
+
+  InitialLocation = FVector::ZeroVector;
+  InitialRotation = FRotator::ZeroRotator;
+  InitialScale = FVector::OneVector;
 }
 
 void USCCurveAnimComponent::BeginPlay() {
@@ -25,245 +28,245 @@ void USCCurveAnimComponent::TickComponent(
     FActorComponentTickFunction *ThisTickFunction) {
   Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-  if (bIsPlaying && !bIsPaused) {
+  if (bIsPlaying) {
     UpdateAnimation(DeltaTime);
   }
 }
 
-void USCCurveAnimComponent::Play() { PlayEx(nullptr, 0.0f, false, false); }
+void USCCurveAnimComponent::Play() { PlayEx(nullptr, PlaybackDuration, true); }
 
 void USCCurveAnimComponent::PlayEx(USCAnimSequence *Sequence, float Duration,
-                                   bool bFromStart, bool bInReverse) {
+                                   bool bFromStart, bool bReverse) {
   if (Sequence) {
     AnimSequence = Sequence;
   }
 
-  if (!AnimSequence)
+  if (!AnimSequence) {
     return;
-
-  if (Duration > 0.0f) {
-    PlaybackDuration = Duration;
   }
 
+  PlaybackDuration = (Duration > 0.0f) ? Duration : GetEffectiveDuration();
   bIsPlaying = true;
   bIsPaused = false;
-  bReverse = bInReverse;
-  FiredNotifyIndices.Empty();
+  bReversePlayback = bReverse;
 
   if (bFromStart) {
-    CurrentTime = bReverse ? GetEffectiveDuration() : 0.0f;
+    PlaybackCurrentTime = bReversePlayback ? PlaybackDuration : 0.0f;
+    CurrentTime = PlaybackCurrentTime;
+    FiredNotifyIndices.Empty();
   }
 }
 
 void USCCurveAnimComponent::PlayFromStart() {
-  PlayEx(nullptr, 0.0f, true, false);
+  PlayEx(nullptr, PlaybackDuration, true);
 }
 
 void USCCurveAnimComponent::Stop() {
   bIsPlaying = false;
   bIsPaused = false;
-  FiredNotifyIndices.Empty();
 }
 
 void USCCurveAnimComponent::Pause() { bIsPaused = true; }
 
 void USCCurveAnimComponent::Resume() { bIsPaused = false; }
 
-void USCCurveAnimComponent::Reverse() {
-  if (!AnimSequence)
-    return;
-  bIsPlaying = true;
-  bIsPaused = false;
-  bReverse = true;
-  CurrentTime = GetEffectiveDuration();
-  FiredNotifyIndices.Empty();
+void USCCurveAnimComponent::ReverseFromEnd() {
+  PlayEx(nullptr, PlaybackDuration, true, true);
 }
 
-void USCCurveAnimComponent::ReverseFromCurrent() { bReverse = !bReverse; }
+void USCCurveAnimComponent::ReverseFromCurrent() {
+  bReversePlayback = !bReversePlayback;
+  bIsPlaying = true;
+  bIsPaused = false;
+}
 
 void USCCurveAnimComponent::SetPlaybackPosition(float NewTime) {
-  CurrentTime = FMath::Clamp(NewTime, 0.0f, GetEffectiveDuration());
-  ApplyTransform();
+  PlaybackCurrentTime = FMath::Clamp(NewTime, 0.0f, PlaybackDuration);
+  CurrentTime = PlaybackCurrentTime;
+  UpdateAnimation(0.0f);
 }
 
 float USCCurveAnimComponent::GetEffectiveDuration() const {
-  if (PlaybackDuration > 0.0f)
-    return PlaybackDuration;
-  return AnimSequence ? AnimSequence->DefaultDuration : 1.0f;
-}
+  if (AnimSequence && AnimSequence->DefaultDuration > 0.0f) {
+    return AnimSequence->DefaultDuration;
+  }
 
-void USCCurveAnimComponent::UpdateAnimation(float DeltaTime) {
-  if (!AnimSequence)
-    return;
-
-  float Duration = GetEffectiveDuration();
-  float OldTime = CurrentTime;
-
-  float TimeStep = DeltaTime * PlayRate;
-  if (bReverse) {
-    CurrentTime -= TimeStep;
-    if (CurrentTime <= 0.0f) {
-      if (bLoop) {
-        CurrentTime = Duration;
-      } else {
-        CurrentTime = 0.0f;
-        bIsPlaying = false;
-        OnAnimationFinished.Broadcast();
-      }
-    }
-  } else {
-    CurrentTime += TimeStep;
-    if (CurrentTime >= Duration) {
-      if (bLoop) {
-        CurrentTime = 0.0f;
-      } else {
-        CurrentTime = Duration;
-        bIsPlaying = false;
-        OnAnimationFinished.Broadcast();
+  float MaxTime = 0.01f;
+  if (AnimSequence) {
+    for (const FSCCurveTrack &Track : AnimSequence->CurveTracks) {
+      if (Track.CurveAsset) {
+        float MinT, MaxT;
+        Track.CurveAsset->GetTimeRange(MinT, MaxT);
+        MaxTime = FMath::Max(MaxTime, MaxT);
       }
     }
   }
+  return MaxTime;
+}
+
+void USCCurveAnimComponent::UpdateAnimation(float DeltaTime) {
+  if (bIsPaused || PlaybackDuration <= 0.0f) {
+    return;
+  }
+
+  float PrevTime = PlaybackCurrentTime;
+  float Direction = bReversePlayback ? -1.0f : 1.0f;
+  PlaybackCurrentTime += DeltaTime * PlayRate * Direction;
+
+  bool bFinished = false;
+  if (!bReversePlayback && PlaybackCurrentTime >= PlaybackDuration) {
+    if (bLoop) {
+      PlaybackCurrentTime -= PlaybackDuration;
+      // Optional: Broadcast Checkpoint/Loop event here if needed
+    } else {
+      PlaybackCurrentTime = PlaybackDuration;
+      bFinished = true;
+    }
+  } else if (bReversePlayback && PlaybackCurrentTime <= 0.0f) {
+    if (bLoop) {
+      PlaybackCurrentTime += PlaybackDuration;
+    } else {
+      PlaybackCurrentTime = 0.0f;
+      bFinished = true;
+    }
+  }
+
+  CurrentTime = PlaybackCurrentTime;
 
   ApplyTransform();
 
-  OnAnimationUpdate.Broadcast(CurrentTime,
-                              Duration > 0 ? CurrentTime / Duration : 0.0f);
+  ProcessNotifies(PrevTime, PlaybackCurrentTime);
 
-  ProcessNotifies(OldTime, CurrentTime);
+  float NormalizedTime =
+      PlaybackDuration > 0.0f ? PlaybackCurrentTime / PlaybackDuration : 0.0f;
+
+  // Calculate Reference Time (time within the original animation asset)
+  // If we are time-stretching, we map PlaybackCurrentTime (0..PlaybackDuration)
+  // to ReferenceTime (0..EffectiveDuration)
+  float EffectiveDuration = GetEffectiveDuration();
+  float ReferenceTime = NormalizedTime * EffectiveDuration;
+  float PrevReferenceTime =
+      (PlaybackDuration > 0.0f)
+          ? (PrevTime / PlaybackDuration) * EffectiveDuration
+          : 0.0f;
+
+  CurrentTime = ReferenceTime;
+
+  ApplyTransform(ReferenceTime);
+
+  ProcessNotifies(PrevReferenceTime, ReferenceTime);
+
+  OnAnimationUpdate.Broadcast(PlaybackCurrentTime, NormalizedTime);
+
+  if (bFinished) {
+    bIsPlaying = false;
+    OnAnimationFinished.Broadcast();
+  }
 }
 
 void USCCurveAnimComponent::ApplyTransform() {
-  if (!AnimSequence)
+  // Overload for internal use without arguments if needed,
+  // but better to refactor checking call sites.
+  // For now, let's keep the signature compatible or update usage.
+  // The previous code used member vars, but we need to pass ReferenceTime.
+  // Let's update the signature in header next if needed, or use a member var.
+  // Since CurrentTime is now updated to ReferenceTime above, we can use
+  // CurrentTime!
+  ApplyTransform(CurrentTime);
+}
+
+void USCCurveAnimComponent::ApplyTransform(float SampleTime) {
+  if (!AnimSequence) {
     return;
+  }
 
-  float Duration = GetEffectiveDuration();
-  float AssetDuration =
-      AnimSequence->DefaultDuration > 0 ? AnimSequence->DefaultDuration : 1.0f;
+  // NormalizedTime was used before, but curve sampling usually expects absolute
+  // time unless the curve is explicitly 0..1. Standard UCurveFloat expects
+  // time. If we assume curves are authored in seconds, we should use SampleTime
+  // (ReferenceTime).
 
-  // Normalize time to asset time
-  float EvalTime = (CurrentTime / Duration) * AssetDuration;
-
-  FVector NewLocation = InitialLocation;
-  FRotator NewRotation = InitialRotation;
+  FVector NewLoc = InitialLocation;
+  FRotator NewRot = InitialRotation;
   FVector NewScale = InitialScale;
 
   for (const FSCCurveTrack &Track : AnimSequence->CurveTracks) {
-    if (!Track.CurveAsset)
-      continue;
+    if (UCurveFloat *Curve = Cast<UCurveFloat>(Track.CurveAsset)) {
+      float Value = Curve->GetFloatValue(SampleTime);
 
-    float Value = 0.0f;
-    FVector VectorValue = FVector::ZeroVector;
-
-    UCurveFloat *FloatCurve = Cast<UCurveFloat>(Track.CurveAsset);
-    UCurveVector *VectorCurve = Cast<UCurveVector>(Track.CurveAsset);
-
-    if (FloatCurve) {
-      Value = FloatCurve->GetFloatValue(EvalTime);
-    } else if (VectorCurve) {
-      VectorValue = VectorCurve->GetVectorValue(EvalTime);
-    }
-
-    switch (Track.TrackType) {
-    case ESCCurveTrackType::LocationX:
-      NewLocation.X = Track.bAddBaseValue ? InitialLocation.X + Value : Value;
-      break;
-    case ESCCurveTrackType::LocationY:
-      NewLocation.Y = Track.bAddBaseValue ? InitialLocation.Y + Value : Value;
-      break;
-    case ESCCurveTrackType::LocationZ:
-      NewLocation.Z = Track.bAddBaseValue ? InitialLocation.Z + Value : Value;
-      break;
-    case ESCCurveTrackType::RotationP:
-      NewRotation.Pitch =
-          Track.bAddBaseValue ? InitialRotation.Pitch + Value : Value;
-      break;
-    case ESCCurveTrackType::RotationY:
-      NewRotation.Yaw =
-          Track.bAddBaseValue ? InitialRotation.Yaw + Value : Value;
-      break;
-    case ESCCurveTrackType::RotationR:
-      NewRotation.Roll =
-          Track.bAddBaseValue ? InitialRotation.Roll + Value : Value;
-      break;
-    case ESCCurveTrackType::ScaleX:
-      NewScale.X = Track.bAddBaseValue ? InitialScale.X + Value : Value;
-      break;
-    case ESCCurveTrackType::ScaleY:
-      NewScale.Y = Track.bAddBaseValue ? InitialScale.Y + Value : Value;
-      break;
-    case ESCCurveTrackType::ScaleZ:
-      NewScale.Z = Track.bAddBaseValue ? InitialScale.Z + Value : Value;
-      break;
-    case ESCCurveTrackType::VectorLocation:
-      NewLocation =
-          Track.bAddBaseValue ? InitialLocation + VectorValue : VectorValue;
-      break;
-    case ESCCurveTrackType::VectorRotation:
-      if (Track.bAddBaseValue) {
-        NewRotation = InitialRotation + FRotator::MakeFromEuler(VectorValue);
-      } else {
-        NewRotation = FRotator::MakeFromEuler(VectorValue);
+      switch (Track.TrackType) {
+      case ESCCurveTrackType::LocationX:
+        NewLoc.X = Track.bAddBaseValue ? InitialLocation.X + Value : Value;
+        break;
+      case ESCCurveTrackType::LocationY:
+        NewLoc.Y = Track.bAddBaseValue ? InitialLocation.Y + Value : Value;
+        break;
+      case ESCCurveTrackType::LocationZ:
+        NewLoc.Z = Track.bAddBaseValue ? InitialLocation.Z + Value : Value;
+        break;
+      case ESCCurveTrackType::RotationP:
+        NewRot.Pitch =
+            Track.bAddBaseValue ? InitialRotation.Pitch + Value : Value;
+        break;
+      case ESCCurveTrackType::RotationY:
+        NewRot.Yaw = Track.bAddBaseValue ? InitialRotation.Yaw + Value : Value;
+        break;
+      case ESCCurveTrackType::RotationR:
+        NewRot.Roll =
+            Track.bAddBaseValue ? InitialRotation.Roll + Value : Value;
+        break;
+      case ESCCurveTrackType::ScaleX:
+        NewScale.X = Track.bAddBaseValue ? InitialScale.X + Value : Value;
+        break;
+      case ESCCurveTrackType::ScaleY:
+        NewScale.Y = Track.bAddBaseValue ? InitialScale.Y + Value : Value;
+        break;
+      case ESCCurveTrackType::ScaleZ:
+        NewScale.Z = Track.bAddBaseValue ? InitialScale.Z + Value : Value;
+        break;
+      default:
+        break;
       }
-      break;
-    case ESCCurveTrackType::VectorScale:
-      NewScale = Track.bAddBaseValue ? InitialScale + VectorValue : VectorValue;
-      break;
-    default:
-      break;
     }
   }
 
   if (TransformSpace == ESCTransformSpace::Local) {
-    SetRelativeLocation(NewLocation);
-    SetRelativeRotation(NewRotation);
+    SetRelativeLocationAndRotation(NewLoc, NewRot);
     SetRelativeScale3D(NewScale);
   } else {
-    SetWorldLocation(NewLocation);
-    SetWorldRotation(NewRotation);
+    SetWorldLocationAndRotation(NewLoc, NewRot);
     SetWorldScale3D(NewScale);
   }
 }
 
 void USCCurveAnimComponent::ProcessNotifies(float OldTime, float NewTime) {
-  if (!AnimSequence)
+  if (!AnimSequence) {
     return;
+  }
 
-  float Duration = GetEffectiveDuration();
+  bool bIsForward = NewTime >= OldTime;
+  float MinTime = FMath::Min(OldTime, NewTime);
+  float MaxTime = FMath::Max(OldTime, NewTime);
 
-  // Check each notify to see if we've crossed its time threshold
   for (int32 i = 0; i < AnimSequence->Notifies.Num(); ++i) {
     const FSCAnimNotify &Notify = AnimSequence->Notifies[i];
 
-    // Skip if already fired
-    if (FiredNotifyIndices.Contains(i)) {
+    // If we are looping/resetting, we might want to handle that differently,
+    // but basic range check works for linear playback.
+
+    if (FiredNotifyIndices.Contains(i))
       continue;
-    }
 
-    float NotifyTime = Notify.Time;
-    bool bCrossedThreshold = false;
-
-    if (bReverse) {
-      // In reverse: check if we went from after to before the notify time
-      bCrossedThreshold = (OldTime >= NotifyTime && NewTime < NotifyTime);
+    bool bShouldTrigger = false;
+    // Check inclusive/exclusive correctly to avoid double firing on boundaries
+    if (bIsForward) {
+      bShouldTrigger = (Notify.Time > MinTime && Notify.Time <= MaxTime);
     } else {
-      // Forward: check if we went from before to after the notify time
-      bCrossedThreshold = (OldTime < NotifyTime && NewTime >= NotifyTime);
+      bShouldTrigger = (Notify.Time >= MinTime && Notify.Time < MaxTime);
     }
 
-    if (bCrossedThreshold) {
+    if (bShouldTrigger) {
       OnAnimationNotify.Broadcast(Notify.NotifyName);
       FiredNotifyIndices.Add(i);
-    }
-  }
-
-  // Reset fired notifies when looping
-  if (bLoop) {
-    if (!bReverse && NewTime < OldTime) {
-      // Forward loop detected
-      FiredNotifyIndices.Empty();
-    } else if (bReverse && NewTime > OldTime) {
-      // Reverse loop detected
-      FiredNotifyIndices.Empty();
     }
   }
 }

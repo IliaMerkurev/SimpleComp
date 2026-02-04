@@ -17,7 +17,7 @@ struct FSCCurveTrack {
 
   /** The curve asset to sample from. */
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Track")
-  UCurveBase *CurveAsset = nullptr;
+  TObjectPtr<UCurveBase> CurveAsset = nullptr;
 
   /** What transform property this curve should drive. */
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Track")
@@ -51,27 +51,26 @@ struct FSCAnimNotify {
  * DataAsset containing reusable animation data for the SC Curve Animation
  * Component.
  */
-UCLASS(BlueprintType)
+UCLASS(BlueprintType, meta = (DisplayName = "Simple Animation Sequence"))
 class SIMPLECOMP_API USCAnimSequence : public UDataAsset {
   GENERATED_BODY()
 
 public:
   /** List of tracks driving transformations. */
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
   TArray<FSCCurveTrack> CurveTracks;
 
   /** List of notify markers that trigger at specific times. */
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
   TArray<FSCAnimNotify> Notifies;
 
-  /**
-   * Default duration for this animation.
-   * If > 0, the curve playback will be scaled to fit this time.
-   */
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+  /** Default duration for this animation. If > 0, the curve playback will be
+   * scaled to fit this time. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation",
+            meta = (ClampMin = "0.01"))
   float DefaultDuration = 1.0f;
 
-  /** Returns all unique notify names in this sequence. */
-  UFUNCTION(BlueprintCallable, Category = "Animation")
+  /** Returns all unique notify names defined in this sequence. */
+  UFUNCTION(BlueprintPure, Category = "SimpleComp|Animation")
   TArray<FName> GetNotifyNames() const;
 };

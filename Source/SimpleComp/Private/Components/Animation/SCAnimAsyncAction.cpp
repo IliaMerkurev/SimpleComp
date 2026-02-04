@@ -3,13 +3,13 @@
 
 USCAnimAsyncAction *
 USCAnimAsyncAction::CreateProxy(USCCurveAnimComponent *Component,
-                                USCAnimSequence *Sequence, float Duration) {
+                                USCAnimSequence *Sequence, double Duration) {
   if (!Component)
     return nullptr;
   USCAnimAsyncAction *Proxy = NewObject<USCAnimAsyncAction>();
   Proxy->TargetComponent = Component;
   Proxy->TargetSequence = Sequence;
-  Proxy->TargetDuration = Duration;
+  Proxy->TargetDuration = static_cast<float>(Duration);
   Proxy->RegisterWithGameInstance(Component);
   return Proxy;
 }
@@ -20,7 +20,6 @@ void USCAnimAsyncAction::Activate() {
     return;
   }
 
-  // Bind to component delegates
   TargetComponent->OnAnimationUpdate.AddDynamic(
       this, &USCAnimAsyncAction::HandleUpdate);
   TargetComponent->OnAnimationFinished.AddDynamic(
@@ -49,9 +48,10 @@ void USCAnimAsyncAction::Resume() {
     TargetComponent->Resume();
 }
 
-void USCAnimAsyncAction::Reverse(bool bFromStart) {
-  if (TargetComponent)
+void USCAnimAsyncAction::ReverseFromEnd(bool bFromStart) {
+  if (TargetComponent && TargetSequence) {
     TargetComponent->PlayEx(TargetSequence, TargetDuration, bFromStart, true);
+  }
 }
 
 void USCAnimAsyncAction::ReverseFromCurrent() {
@@ -60,22 +60,22 @@ void USCAnimAsyncAction::ReverseFromCurrent() {
 }
 
 void USCAnimAsyncAction::HandleUpdate(float CurrentTime, float NormalizedTime) {
-  Update.Broadcast(NAME_None, CurrentTime, NormalizedTime);
+  Update.Broadcast(NAME_None, static_cast<double>(CurrentTime),
+                   static_cast<double>(NormalizedTime));
 }
 
 void USCAnimAsyncAction::HandleFinished() {
   float FinalTime =
       TargetComponent ? TargetComponent->GetPlaybackPosition() : 0.0f;
-  Finished.Broadcast(NAME_None, FinalTime, 1.0f);
-  // We DON'T cleanup here if we want to support multiple plays from the same
-  // node But for a professional node, usually Finished means it's done.
-  // However, Timeline stays alive. So we stay alive.
+  Finished.Broadcast(NAME_None, static_cast<double>(FinalTime), 1.0);
 }
 
 void USCAnimAsyncAction::HandleNotify(FName NotifyName) {
   OnNotify.Broadcast(
       NotifyName,
-      TargetComponent ? TargetComponent->GetPlaybackPosition() : 0.0f, 0.0f);
+      static_cast<double>(
+          TargetComponent ? TargetComponent->GetPlaybackPosition() : 0.0f),
+      0.0);
 }
 
 void USCAnimAsyncAction::Cleanup() {

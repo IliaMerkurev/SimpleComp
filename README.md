@@ -9,6 +9,7 @@ SimpleComp is an open-source plugin for Unreal Engine featuring a collection of 
 - Replace fragile Blueprint solutions with stable C++ components.
 - Provide convenient tools for motion design and gameplay.
 - Maintain maximum integration simplicity.
+- **Deliver a Premium Experience**: Professional Editor names and full Sequencer compatibility.
 
 ## 🧩 Philosophy
 SimpleComp is a collection of autonomous components, not a rigid framework.
@@ -16,19 +17,9 @@ SimpleComp is a collection of autonomous components, not a rigid framework.
 - No hidden dependencies.
 - No global managers.
 - Each component solves one task and works in isolation.
+- **Zero-Coupling**: Systems (Animation, Movement, Spawning) are strictly decoupled for maximum modularity.
 
 ## 📌 Included Components
-
-### Movement Components
-- **SCRotationComponent**: Parametric rotation for actors or meshes.
-- **SCFollowConstraintComponent**: Constrains actor distance to a target with smoothed rotation.
-- **SCSphereRollComponent**: Sphere rolling based on delta location (ideal for motion design without complex physics).
-- **SCWheelComponent**: Base component for wheels and transport movement.
-
-### Spawning Components
-- **SCSpawnerComponent**: Universal actor spawner with transform control.
-
----
 
 Detailed technical information, directory structure, and shared types are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 

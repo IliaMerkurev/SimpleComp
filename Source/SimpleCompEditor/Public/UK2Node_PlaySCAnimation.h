@@ -11,7 +11,8 @@ class USCCurveAnimComponent;
  * Custom Blueprint node that plays an SC Animation with dynamic output pins
  * for each notify in the selected animation sequence.
  */
-UCLASS()
+UCLASS(meta = (Keywords = "Play SC Animation Simple Animation",
+               DisplayName = "Simple Play Animation"))
 class SIMPLECOMPEDITOR_API UK2Node_PlaySCAnimation : public UK2Node {
   GENERATED_BODY()
 
@@ -41,9 +42,10 @@ public:
 #endif
   // End of UK2Node interface
 
-  /** The animation sequence asset to use for pin generation */
-  UPROPERTY(EditAnywhere, Category = "Animation")
-  USCAnimSequence *AnimSequence;
+  /** The animation sequence asset to use for generating dynamic notification
+   * pins. */
+  UPROPERTY(EditAnywhere, Category = "SimpleComp|Animation")
+  TObjectPtr<USCAnimSequence> AnimSequence;
 
 private:
   static const FName PN_Play;
@@ -51,7 +53,7 @@ private:
   static const FName PN_Stop;
   static const FName PN_Pause;
   static const FName PN_Resume;
-  static const FName PN_Reverse;
+  static const FName PN_ReverseFromEnd;
   static const FName PN_ReverseFromCurrent;
 
   // Input Data Pins

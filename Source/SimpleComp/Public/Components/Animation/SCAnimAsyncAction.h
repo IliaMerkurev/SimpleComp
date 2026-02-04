@@ -8,14 +8,14 @@ class USCCurveAnimComponent;
 class USCAnimSequence;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FSCAnimProxyOutputPin, FName,
-                                               NotifyName, float, CurrentTime,
-                                               float, NormalizedTime);
+                                               NotifyName, double, CurrentTime,
+                                               double, NormalizedTime);
 
 /**
  * Proxy object that handles delegate binding and state for the
  * UK2Node_PlaySCAnimation.
  */
-UCLASS()
+UCLASS(BlueprintType, meta = (DisplayName = "Simple Animation Async Action"))
 class SIMPLECOMP_API USCAnimAsyncAction : public UBlueprintAsyncActionBase {
   GENERATED_BODY()
 
@@ -23,16 +23,29 @@ public:
   virtual void Activate() override;
 
   /** Internal factory for UK2Node */
+  // Use double for Blueprint interface (UE5 "Real" / Green Pins)
+  UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
   static USCAnimAsyncAction *CreateProxy(USCCurveAnimComponent *Component,
                                          USCAnimSequence *Sequence,
-                                         float Duration);
+                                         double Duration);
 
   /** Play control functions called by UK2Node */
+  UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
   void Play(bool bFromStart);
+
+  UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
   void Stop();
+
+  UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
   void Pause();
+
+  UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
   void Resume();
-  void Reverse(bool bFromStart);
+
+  UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
+  void ReverseFromEnd(bool bFromStart);
+
+  UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
   void ReverseFromCurrent();
 
   /** Output pins */
@@ -62,10 +75,10 @@ private:
   void Cleanup();
 
   UPROPERTY()
-  USCCurveAnimComponent *TargetComponent;
+  TObjectPtr<USCCurveAnimComponent> TargetComponent;
 
   UPROPERTY()
-  USCAnimSequence *TargetSequence;
+  TObjectPtr<USCAnimSequence> TargetSequence;
 
   float TargetDuration;
 };
