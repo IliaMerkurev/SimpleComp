@@ -18,6 +18,7 @@
     - `.../Public/Core/`: Shared types and base enums.
     - `.../Public/Components/Movement/`: Movement-related logic.
     - `.../Public/Components/Spawning/`: Spawning-related logic.
+    - `.../Public/Components/Animation/`: Animation and curve-based logic.
 
 ## 💎 Core Types
 To ensure consistency across the toolkit, shared data structures are centralized in `SCTypes.h`.
@@ -36,6 +37,16 @@ To ensure consistency across the toolkit, shared data structures are centralized
 | `USCWheelComponent` | Movement | Wheel logic (Base for vehicles/carts). |
 | `USCFollowConstraintComponent` | Movement | Constrains actor distance to a target with smoothed rotation. |
 | `USCSpawnerComponent` | Spawning | Universal actor spawner with transform control. |
+| `USCCurveAnimComponent` | Animation | Plays curve-based animations with notifies. |
+
+## 🎭 Animation System
+The animation system uses a hybrid approach to provide professional Blueprint usability:
+- **USCAnimSequence**: Data Assets containing Float/Vector curve tracks and event notifies.
+- **USCCurveAnimComponent**: The runtime engine that evaluates curves and broadcasts events.
+- **UK2Node_PlaySCAnimation**: A professional-grade Blueprint node that:
+    - Automatically discovers notifies in the assigned sequence.
+    - Dynamically generates execution pins for each notify.
+    - Uses an internal `USCAnimAsyncAction` proxy to handle asynchronous state and multi-pin output.
 
 ## 🧪 Implementation Guidelines
 - **Category**: All components must appear under `Components` -> `SimpleComp`.

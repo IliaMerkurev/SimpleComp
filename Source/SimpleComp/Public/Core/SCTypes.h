@@ -35,6 +35,35 @@ enum class ESCRotationMode : uint8 {
 };
 
 /**
+ * Defines what transform property a curve track should drive.
+ */
+UENUM(BlueprintType)
+enum class ESCCurveTrackType : uint8 {
+  LocationX,
+  LocationY,
+  LocationZ,
+  RotationP,
+  RotationY,
+  RotationR,
+  ScaleX,
+  ScaleY,
+  ScaleZ,
+  VectorLocation,
+  VectorRotation,
+  VectorScale,
+  CustomFloat
+};
+
+/**
+ * Defines the space in which transformations are applied.
+ */
+UENUM(BlueprintType)
+enum class ESCTransformSpace : uint8 {
+  Local UMETA(DisplayName = "Local Space"),
+  World UMETA(DisplayName = "World Space")
+};
+
+/**
  * Universal settings for individual axis constraints and limits.
  * Used for both Location and Rotation.
  */

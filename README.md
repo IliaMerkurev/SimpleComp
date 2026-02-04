@@ -21,11 +21,16 @@ SimpleComp is a collection of autonomous components, not a rigid framework.
 
 ### Movement Components
 - **SCRotationComponent**: Parametric rotation for actors or meshes.
+- **SCFollowConstraintComponent**: Constrains actor distance to a target with smoothed rotation.
 - **SCSphereRollComponent**: Sphere rolling based on delta location (ideal for motion design without complex physics).
 - **SCWheelComponent**: Base component for wheels and transport movement.
 
 ### Spawning Components
 - **SCSpawnerComponent**: Universal actor spawner with transform control.
+
+---
+
+Detailed technical information, directory structure, and shared types are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 🛠 Naming & Style
 - All classes use the `SC` prefix (e.g., `USCRotationComponent`).
