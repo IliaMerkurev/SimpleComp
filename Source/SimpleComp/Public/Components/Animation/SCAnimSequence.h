@@ -27,6 +27,14 @@ struct FSCCurveTrack {
    * of overriding it. */
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Track")
   bool bAddBaseValue = true;
+
+  /** Scale factor for float curves. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Track")
+  float ScaleFloat = 1.0f;
+
+  /** Scale factor for vector curves. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Track")
+  FVector ScaleVector = FVector::OneVector;
 };
 
 /**

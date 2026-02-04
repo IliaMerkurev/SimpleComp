@@ -1,6 +1,7 @@
 #include "Components/Animation/SCCurveAnimComponent.h"
 #include "Components/Animation/SCAnimSequence.h"
 #include "Curves/CurveFloat.h"
+#include "Curves/CurveVector.h"
 
 USCCurveAnimComponent::USCCurveAnimComponent() {
   PrimaryComponentTick.bCanEverTick = true;
@@ -197,7 +198,7 @@ void USCCurveAnimComponent::ApplyTransform(float SampleTime) {
 
   for (const FSCCurveTrack &Track : AnimSequence->CurveTracks) {
     if (UCurveFloat *Curve = Cast<UCurveFloat>(Track.CurveAsset)) {
-      float Value = Curve->GetFloatValue(SampleTime);
+      float Value = Curve->GetFloatValue(SampleTime) * Track.ScaleFloat;
 
       switch (Track.TrackType) {
       case ESCCurveTrackType::LocationX:
@@ -228,6 +229,34 @@ void USCCurveAnimComponent::ApplyTransform(float SampleTime) {
         break;
       case ESCCurveTrackType::ScaleZ:
         NewScale.Z = Track.bAddBaseValue ? InitialScale.Z + Value : Value;
+        break;
+      default:
+        break;
+      }
+    } else if (UCurveVector *VectorCurve =
+                   Cast<UCurveVector>(Track.CurveAsset)) {
+      FVector Value =
+          VectorCurve->GetVectorValue(SampleTime) * Track.ScaleVector;
+
+      switch (Track.TrackType) {
+      case ESCCurveTrackType::VectorLocation:
+        NewLoc = Track.bAddBaseValue ? InitialLocation + Value : Value;
+        break;
+      case ESCCurveTrackType::VectorRotation:
+        // Mapping Vector X->Pitch, Y->Yaw, Z->Roll to match generic 3D vector
+        // to rotator
+        if (Track.bAddBaseValue) {
+          NewRot.Pitch = InitialRotation.Pitch + Value.X;
+          NewRot.Yaw = InitialRotation.Yaw + Value.Y;
+          NewRot.Roll = InitialRotation.Roll + Value.Z;
+        } else {
+          NewRot.Pitch = Value.X;
+          NewRot.Yaw = Value.Y;
+          NewRot.Roll = Value.Z;
+        }
+        break;
+      case ESCCurveTrackType::VectorScale:
+        NewScale = Track.bAddBaseValue ? InitialScale + Value : Value;
         break;
       default:
         break;
