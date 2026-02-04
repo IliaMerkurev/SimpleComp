@@ -27,6 +27,7 @@ const FName UK2Node_PlaySCAnimation::PN_Stop(TEXT("Stop"));
 const FName UK2Node_PlaySCAnimation::PN_Pause(TEXT("Pause"));
 const FName UK2Node_PlaySCAnimation::PN_Resume(TEXT("Resume"));
 const FName UK2Node_PlaySCAnimation::PN_ReverseFromEnd(TEXT("ReverseFromEnd"));
+const FName UK2Node_PlaySCAnimation::PN_Loop(TEXT("Loop"));
 const FName
     UK2Node_PlaySCAnimation::PN_ReverseFromCurrent(TEXT("ReverseFromCurrent"));
 
@@ -79,6 +80,14 @@ void UK2Node_PlaySCAnimation::AllocateDefaultPins() {
                 "Optional duration override (0 = use default)"),
       DurationPin->PinToolTip);
   DurationPin->DefaultValue = TEXT("1.0");
+
+  UEdGraphPin *LoopPin =
+      CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Boolean, PN_Loop);
+  LoopPin->DefaultValue = TEXT("false");
+  K2Schema->ConstructBasicPinTooltip(
+      *LoopPin,
+      NSLOCTEXT("K2Node", "LoopTooltip", "Whether to loop the animation"),
+      LoopPin->PinToolTip);
 
   CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, PN_Then);
   CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, PN_Update);
@@ -262,6 +271,7 @@ void UK2Node_PlaySCAnimation::ExpandNode(
     CopyInput(PN_Component, CreateProxyNode, TEXT("Component"));
     CopyInput(PN_Sequence, CreateProxyNode, TEXT("Sequence"));
     CopyInput(PN_Duration, CreateProxyNode, TEXT("Duration"));
+    CopyInput(PN_Loop, CreateProxyNode, TEXT("bLoop"));
 
     CompilerContext.MovePinLinksToIntermediate(*ExecInput,
                                                *CreateProxyNode->GetExecPin());

@@ -60,6 +60,7 @@ private:
   static const FName PN_Component;
   static const FName PN_Sequence;
   static const FName PN_Duration;
+  static const FName PN_Loop;
 
   // Output Pins
   static const FName PN_Then;

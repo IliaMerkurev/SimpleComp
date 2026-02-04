@@ -27,7 +27,7 @@ public:
   UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
   static USCAnimAsyncAction *CreateProxy(USCCurveAnimComponent *Component,
                                          USCAnimSequence *Sequence,
-                                         double Duration);
+                                         double Duration, bool bLoop);
 
   /** Play control functions called by UK2Node */
   UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true"))
@@ -61,6 +61,10 @@ public:
   // use with a dispatcher or separate bindings.
   UPROPERTY(BlueprintAssignable)
   FSCAnimProxyOutputPin OnNotify;
+
+public:
+  // Internal usage: Loop state
+  bool TargetLoop = false;
 
 private:
   UFUNCTION()

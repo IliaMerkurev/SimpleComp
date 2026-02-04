@@ -62,9 +62,18 @@ public:
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Play();
 
+  /**
+   * Plays the animation with extended options.
+   * @param Sequence Optional sequence to play. If null, plays current.
+   * @param Duration Duration to play for. -1 uses sequence duration.
+   * @param bFromStart Whether to restart from beginning.
+   * @param bReverse Whether to play in reverse.
+   * @param bInLoop Whether to loop the animation.
+   */
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void PlayEx(USCAnimSequence *Sequence, float Duration = -1.0f,
-              bool bFromStart = true, bool bReverse = false);
+              bool bFromStart = true, bool bReverse = false,
+              bool bInLoop = false);
 
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void PlayFromStart();
@@ -101,6 +110,7 @@ private:
 
   bool bIsPlaying = false;
   bool bIsPaused = false;
+  bool bFinished = false; // Added missing state variable
   float PlaybackCurrentTime = 0.0f;
 
   FVector InitialLocation;

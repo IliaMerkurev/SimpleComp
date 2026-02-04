@@ -33,10 +33,13 @@ void USCCurveAnimComponent::TickComponent(
   }
 }
 
-void USCCurveAnimComponent::Play() { PlayEx(nullptr, PlaybackDuration, true); }
+void USCCurveAnimComponent::Play() {
+  PlayEx(nullptr, PlaybackDuration, true, false, bLoop);
+}
 
 void USCCurveAnimComponent::PlayEx(USCAnimSequence *Sequence, float Duration,
-                                   bool bFromStart, bool bReverse) {
+                                   bool bFromStart, bool bReverse,
+                                   bool bInLoop) {
   if (Sequence) {
     AnimSequence = Sequence;
   }
@@ -48,7 +51,9 @@ void USCCurveAnimComponent::PlayEx(USCAnimSequence *Sequence, float Duration,
   PlaybackDuration = (Duration > 0.0f) ? Duration : GetEffectiveDuration();
   bIsPlaying = true;
   bIsPaused = false;
+  bFinished = false;
   bReversePlayback = bReverse;
+  bLoop = bInLoop;
 
   if (bFromStart) {
     PlaybackCurrentTime = bReversePlayback ? PlaybackDuration : 0.0f;
@@ -58,7 +63,7 @@ void USCCurveAnimComponent::PlayEx(USCAnimSequence *Sequence, float Duration,
 }
 
 void USCCurveAnimComponent::PlayFromStart() {
-  PlayEx(nullptr, PlaybackDuration, true);
+  PlayEx(nullptr, PlaybackDuration, true, false, bLoop);
 }
 
 void USCCurveAnimComponent::Stop() {
@@ -71,7 +76,7 @@ void USCCurveAnimComponent::Pause() { bIsPaused = true; }
 void USCCurveAnimComponent::Resume() { bIsPaused = false; }
 
 void USCCurveAnimComponent::ReverseFromEnd() {
-  PlayEx(nullptr, PlaybackDuration, true, true);
+  PlayEx(nullptr, PlaybackDuration, true, true, bLoop);
 }
 
 void USCCurveAnimComponent::ReverseFromCurrent() {
@@ -113,11 +118,11 @@ void USCCurveAnimComponent::UpdateAnimation(float DeltaTime) {
   float Direction = bReversePlayback ? -1.0f : 1.0f;
   PlaybackCurrentTime += DeltaTime * PlayRate * Direction;
 
-  bool bFinished = false;
+  bFinished = false;
   if (!bReversePlayback && PlaybackCurrentTime >= PlaybackDuration) {
     if (bLoop) {
       PlaybackCurrentTime -= PlaybackDuration;
-      // Optional: Broadcast Checkpoint/Loop event here if needed
+      FiredNotifyIndices.Empty();
     } else {
       PlaybackCurrentTime = PlaybackDuration;
       bFinished = true;
@@ -125,6 +130,7 @@ void USCCurveAnimComponent::UpdateAnimation(float DeltaTime) {
   } else if (bReversePlayback && PlaybackCurrentTime <= 0.0f) {
     if (bLoop) {
       PlaybackCurrentTime += PlaybackDuration;
+      FiredNotifyIndices.Empty();
     } else {
       PlaybackCurrentTime = 0.0f;
       bFinished = true;

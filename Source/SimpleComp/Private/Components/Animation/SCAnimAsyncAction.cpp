@@ -3,13 +3,15 @@
 
 USCAnimAsyncAction *
 USCAnimAsyncAction::CreateProxy(USCCurveAnimComponent *Component,
-                                USCAnimSequence *Sequence, double Duration) {
+                                USCAnimSequence *Sequence, double Duration,
+                                bool bLoop) {
   if (!Component)
     return nullptr;
   USCAnimAsyncAction *Proxy = NewObject<USCAnimAsyncAction>();
   Proxy->TargetComponent = Component;
   Proxy->TargetSequence = Sequence;
   Proxy->TargetDuration = static_cast<float>(Duration);
+  Proxy->TargetLoop = bLoop;
   Proxy->RegisterWithGameInstance(Component);
   return Proxy;
 }
@@ -26,11 +28,15 @@ void USCAnimAsyncAction::Activate() {
       this, &USCAnimAsyncAction::HandleFinished);
   TargetComponent->OnAnimationNotify.AddDynamic(
       this, &USCAnimAsyncAction::HandleNotify);
+
+  // Start the animation!
+  Play(true);
 }
 
 void USCAnimAsyncAction::Play(bool bFromStart) {
   if (TargetComponent)
-    TargetComponent->PlayEx(TargetSequence, TargetDuration, bFromStart, false);
+    TargetComponent->PlayEx(TargetSequence, TargetDuration, bFromStart, false,
+                            TargetLoop);
 }
 
 void USCAnimAsyncAction::Stop() {
@@ -50,7 +56,8 @@ void USCAnimAsyncAction::Resume() {
 
 void USCAnimAsyncAction::ReverseFromEnd(bool bFromStart) {
   if (TargetComponent && TargetSequence) {
-    TargetComponent->PlayEx(TargetSequence, TargetDuration, bFromStart, true);
+    TargetComponent->PlayEx(TargetSequence, TargetDuration, bFromStart, true,
+                            TargetLoop);
   }
 }
 
