@@ -1,7 +1,7 @@
 #pragma once
 
-#include "CoreMinimal.h"
 #include "Components/SceneComponent.h"
+#include "CoreMinimal.h"
 #include "SCSphereRollComponent.generated.h"
 
 /**
@@ -9,29 +9,30 @@
  * Procedural rolling component for spherical objects (rocks, balls, etc.).
  * Calculates rotation based on movement delta and surface contact.
  */
-UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent))
-class SIMPLECOMP_API USCSphereRollComponent : public USceneComponent
-{
-	GENERATED_BODY()
+UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayName = "Simple Sphere Roll Component"))
+    class SIMPLECOMP_API USCSphereRollComponent : public USceneComponent
+    {
+        GENERATED_BODY()
 
-public:
-	USCSphereRollComponent();
+    public:
+        USCSphereRollComponent();
 
-protected:
-	virtual void BeginPlay() override;
+    protected:
+        virtual void BeginPlay() override;
 
-public:
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+    public:
+        virtual void TickComponent(float DeltaTime, ELevelTick TickType,
+            FActorComponentTickFunction* ThisTickFunction) override;
 
-	/** Radius of the sphere in centimeters. Used to calculate rotation angle. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Sphere Settings")
-	float SphereRadius = 50.0f;
+        /** Radius of the sphere in centimeters. Used to calculate rotation angle. */
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Sphere Settings", Interp)
+        float SphereRadius = 50.0f;
 
-	/** Inverts the rotation direction. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Sphere Settings")
-	bool bInvertRotation = false;
+        /** Inverts the rotation direction. */
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Sphere Settings", Interp)
+        bool bInvertRotation = false;
 
-private:
-	FVector LastLocation;
-	FQuat CurrentRotationQuat;
-};
+    private:
+        FVector LastLocation;
+        FQuat CurrentRotationQuat;
+    };

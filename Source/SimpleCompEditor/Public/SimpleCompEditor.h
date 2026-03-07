@@ -3,8 +3,9 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FSimpleCompEditorModule : public IModuleInterface {
+class FSimpleCompEditorModule : public IModuleInterface
+{
 public:
-  virtual void StartupModule() override;
-  virtual void ShutdownModule() override;
+    virtual void StartupModule() override;
+    virtual void ShutdownModule() override;
 };
