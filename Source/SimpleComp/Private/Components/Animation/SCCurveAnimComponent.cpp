@@ -139,9 +139,9 @@ float USCCurveAnimComponent::GetEffectiveDuration() const
             }
             else if (Track.CurveTableAsset)
             {
-                for (const auto& RowPair : Track.CurveTableAsset->GetRowMap())
+                for (const FName& RowName : {FName("X"), FName("Y"), FName("Z")})
                 {
-                    if (const FRealCurve* RowCurve = reinterpret_cast<const FRealCurve*>(RowPair.Value))
+                    if (const FRealCurve* RowCurve = Track.CurveTableAsset->FindCurve(RowName, TEXT(""), false))
                     {
                         float RowMin, RowMax;
                         RowCurve->GetTimeRange(RowMin, RowMax);
@@ -239,9 +239,45 @@ void USCCurveAnimComponent::ApplyTransform(float SampleTime)
 
     for (const FSCCurveTrack& Track : AnimSequence->CurveTracks)
     {
-        if (UCurveFloat* Curve = Cast<UCurveFloat>(Track.CurveAsset))
+        const bool bIsTableTrack = Track.TrackType == ESCCurveTrackType::TableLocation ||
+            Track.TrackType == ESCCurveTrackType::TableRotation || Track.TrackType == ESCCurveTrackType::TableScale;
+
+        if (bIsTableTrack && Track.CurveTableAsset)
         {
-            float Value = Curve->GetFloatValue(SampleTime) * Track.ScaleFloat;
+            auto SampleTableRow = [&](const FName& RowName) -> float
+            {
+                const FRealCurve* FoundCurve = Track.CurveTableAsset->FindCurve(RowName, TEXT(""), false);
+                return FoundCurve ? FoundCurve->Eval(SampleTime) : 0.0f;
+            };
+
+            const float X = SampleTableRow(FName("X")) * Track.ScaleVector.X * Track.ScaleCurve;
+            const float Y = SampleTableRow(FName("Y")) * Track.ScaleVector.Y * Track.ScaleCurve;
+            const float Z = SampleTableRow(FName("Z")) * Track.ScaleVector.Z * Track.ScaleCurve;
+
+            switch (Track.TrackType)
+            {
+                case ESCCurveTrackType::TableLocation:
+                    NewLoc.X = Track.bAddBaseValue ? InitialLocation.X + X : X;
+                    NewLoc.Y = Track.bAddBaseValue ? InitialLocation.Y + Y : Y;
+                    NewLoc.Z = Track.bAddBaseValue ? InitialLocation.Z + Z : Z;
+                    break;
+                case ESCCurveTrackType::TableRotation:
+                    NewRot.Pitch = Track.bAddBaseValue ? InitialRotation.Pitch + X : X;
+                    NewRot.Yaw = Track.bAddBaseValue ? InitialRotation.Yaw + Y : Y;
+                    NewRot.Roll = Track.bAddBaseValue ? InitialRotation.Roll + Z : Z;
+                    break;
+                case ESCCurveTrackType::TableScale:
+                    NewScale.X = Track.bAddBaseValue ? InitialScale.X + X : X;
+                    NewScale.Y = Track.bAddBaseValue ? InitialScale.Y + Y : Y;
+                    NewScale.Z = Track.bAddBaseValue ? InitialScale.Z + Z : Z;
+                    break;
+                default:
+                    break;
+            }
+        }
+        else if (UCurveFloat* Curve = Cast<UCurveFloat>(Track.CurveAsset))
+        {
+            float Value = Curve->GetFloatValue(SampleTime) * Track.ScaleCurve;
 
             switch (Track.TrackType)
             {
@@ -271,39 +307,6 @@ void USCCurveAnimComponent::ApplyTransform(float SampleTime)
                     break;
                 case ESCCurveTrackType::ScaleZ:
                     NewScale.Z = Track.bAddBaseValue ? InitialScale.Z + Value : Value;
-                    break;
-                default:
-                    break;
-            }
-        }
-        else if (Track.CurveTableAsset)
-        {
-            auto SampleTableRow = [&](const FName& RowName) -> float
-            {
-                const FRealCurve* FoundCurve = Track.CurveTableAsset->FindCurve(RowName, TEXT(""), false);
-                return FoundCurve ? FoundCurve->Eval(SampleTime) : 0.0f;
-            };
-
-            const float X = SampleTableRow(FName("X")) * Track.ScaleVector.X;
-            const float Y = SampleTableRow(FName("Y")) * Track.ScaleVector.Y;
-            const float Z = SampleTableRow(FName("Z")) * Track.ScaleVector.Z;
-
-            switch (Track.TrackType)
-            {
-                case ESCCurveTrackType::TableLocation:
-                    NewLoc.X = Track.bAddBaseValue ? InitialLocation.X + X : X;
-                    NewLoc.Y = Track.bAddBaseValue ? InitialLocation.Y + Y : Y;
-                    NewLoc.Z = Track.bAddBaseValue ? InitialLocation.Z + Z : Z;
-                    break;
-                case ESCCurveTrackType::TableRotation:
-                    NewRot.Pitch = Track.bAddBaseValue ? InitialRotation.Pitch + X : X;
-                    NewRot.Yaw = Track.bAddBaseValue ? InitialRotation.Yaw + Y : Y;
-                    NewRot.Roll = Track.bAddBaseValue ? InitialRotation.Roll + Z : Z;
-                    break;
-                case ESCCurveTrackType::TableScale:
-                    NewScale.X = Track.bAddBaseValue ? InitialScale.X + X : X;
-                    NewScale.Y = Track.bAddBaseValue ? InitialScale.Y + Y : Y;
-                    NewScale.Z = Track.bAddBaseValue ? InitialScale.Z + Z : Z;
                     break;
                 default:
                     break;

@@ -35,9 +35,9 @@ USTRUCT(BlueprintType)
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Track")
         bool bAddBaseValue = true;
 
-        /** Scale factor for float curves. */
+        /** Uniform scale factor applied to the sampled value. Works for both single Curve and CurveTable tracks. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Track")
-        float ScaleFloat = 1.0f;
+        float ScaleCurve = 1.0f;
 
         /** Scale factor for vector curves. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Track")
