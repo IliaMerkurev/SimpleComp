@@ -28,37 +28,53 @@ public:
 
   virtual void BeginPlay() override;
 
+  /** The animation sequence to play. */
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
   TObjectPtr<USCAnimSequence> AnimSequence;
 
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation",
-            meta = (ClampMin = "0.01"))
+  /** Total duration of the playback in seconds. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Interp,
+            Category = "SimpleComp|Animation", meta = (ClampMin = "0.01"))
   float PlaybackDuration = 1.0f;
 
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
+  /** Multiplier for playback speed. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Interp,
+            Category = "SimpleComp|Animation")
   float PlayRate = 1.0f;
 
+  /** Current playback position in seconds. */
   UPROPERTY(BlueprintReadOnly, Category = "SimpleComp|Animation")
   float CurrentTime = 0.0f;
 
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
+  /** Whether the animation should loop when it reaches the end. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Interp,
+            Category = "SimpleComp|Animation")
   bool bLoop = false;
 
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
+  /** Whether to start playing automatically on BeginPlay. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Interp,
+            Category = "SimpleComp|Animation")
   bool bAutoPlay = true;
 
-  UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
+  /** Whether to apply transforms in Local or World space. */
+  UPROPERTY(EditAnywhere, BlueprintReadWrite, Interp,
+            Category = "SimpleComp|Animation")
   ESCTransformSpace TransformSpace = ESCTransformSpace::Local;
 
+  /** Called when playback finishes (not called when looping). */
   UPROPERTY(BlueprintAssignable, Category = "SimpleComp|Animation")
   FSCAnimFinishedSignature OnAnimationFinished;
 
+  /** Called when a notify marker is triggered. */
   UPROPERTY(BlueprintAssignable, Category = "SimpleComp|Animation")
   FSCAnimNotifySignature OnAnimationNotify;
 
+  /** Called every frame during playback with current time and normalized time.
+   */
   UPROPERTY(BlueprintAssignable, Category = "SimpleComp|Animation")
   FSCAnimUpdateSignature OnAnimationUpdate;
 
+  /** Starts playback with current settings. */
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Play();
 
@@ -75,29 +91,39 @@ public:
               bool bFromStart = true, bool bReverse = false,
               bool bInLoop = false);
 
+  /** Restarts playback from the beginning. */
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void PlayFromStart();
 
+  /** Stops playback / resets state. */
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Stop();
 
+  /** Pauses playback at current time. */
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Pause();
 
+  /** Resumes playback from paused state. */
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void Resume();
 
+  /** Plays in reverse from the end. */
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void ReverseFromEnd();
 
+  /** Toggles reverse playback from current position. */
   UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void ReverseFromCurrent();
 
+  /** Returns current playback position. */
   UFUNCTION(BlueprintPure, Category = "SimpleComp|Animation")
   float GetPlaybackPosition() const { return CurrentTime; }
 
+  /** Jumps to specific playback position. */
+  UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
   void SetPlaybackPosition(float NewTime);
 
+  /** Returns true if currently playing. */
   UFUNCTION(BlueprintPure, Category = "SimpleComp|Animation")
   bool IsPlaying() const { return bIsPlaying; }
 
@@ -110,7 +136,7 @@ private:
 
   bool bIsPlaying = false;
   bool bIsPaused = false;
-  bool bFinished = false; // Added missing state variable
+  bool bFinished = false;
   float PlaybackCurrentTime = 0.0f;
 
   FVector InitialLocation;

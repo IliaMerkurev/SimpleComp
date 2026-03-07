@@ -5,7 +5,8 @@
 
 USCCurveAnimComponent::USCCurveAnimComponent() {
   PrimaryComponentTick.bCanEverTick = true;
-  PrimaryComponentTick.bStartWithTickEnabled = true;
+  PrimaryComponentTick.bCanEverTick = true;
+  PrimaryComponentTick.bStartWithTickEnabled = false;
 
   InitialLocation = FVector::ZeroVector;
   InitialRotation = FRotator::ZeroRotator;
@@ -61,6 +62,8 @@ void USCCurveAnimComponent::PlayEx(USCAnimSequence *Sequence, float Duration,
     CurrentTime = PlaybackCurrentTime;
     FiredNotifyIndices.Empty();
   }
+
+  SetComponentTickEnabled(true);
 }
 
 void USCCurveAnimComponent::PlayFromStart() {
@@ -70,11 +73,18 @@ void USCCurveAnimComponent::PlayFromStart() {
 void USCCurveAnimComponent::Stop() {
   bIsPlaying = false;
   bIsPaused = false;
+  SetComponentTickEnabled(false);
 }
 
-void USCCurveAnimComponent::Pause() { bIsPaused = true; }
+void USCCurveAnimComponent::Pause() {
+  bIsPaused = true;
+  SetComponentTickEnabled(false);
+}
 
-void USCCurveAnimComponent::Resume() { bIsPaused = false; }
+void USCCurveAnimComponent::Resume() {
+  bIsPaused = false;
+  SetComponentTickEnabled(true);
+}
 
 void USCCurveAnimComponent::ReverseFromEnd() {
   PlayEx(nullptr, PlaybackDuration, true, true, bLoop);
@@ -84,6 +94,7 @@ void USCCurveAnimComponent::ReverseFromCurrent() {
   bReversePlayback = !bReversePlayback;
   bIsPlaying = true;
   bIsPaused = false;
+  SetComponentTickEnabled(true);
 }
 
 void USCCurveAnimComponent::SetPlaybackPosition(float NewTime) {
@@ -147,9 +158,6 @@ void USCCurveAnimComponent::UpdateAnimation(float DeltaTime) {
   float NormalizedTime =
       PlaybackDuration > 0.0f ? PlaybackCurrentTime / PlaybackDuration : 0.0f;
 
-  // Calculate Reference Time (time within the original animation asset)
-  // If we are time-stretching, we map PlaybackCurrentTime (0..PlaybackDuration)
-  // to ReferenceTime (0..EffectiveDuration)
   float EffectiveDuration = GetEffectiveDuration();
   float ReferenceTime = NormalizedTime * EffectiveDuration;
   float PrevReferenceTime =
@@ -168,29 +176,16 @@ void USCCurveAnimComponent::UpdateAnimation(float DeltaTime) {
   if (bFinished) {
     bIsPlaying = false;
     OnAnimationFinished.Broadcast();
+    SetComponentTickEnabled(false);
   }
 }
 
-void USCCurveAnimComponent::ApplyTransform() {
-  // Overload for internal use without arguments if needed,
-  // but better to refactor checking call sites.
-  // For now, let's keep the signature compatible or update usage.
-  // The previous code used member vars, but we need to pass ReferenceTime.
-  // Let's update the signature in header next if needed, or use a member var.
-  // Since CurrentTime is now updated to ReferenceTime above, we can use
-  // CurrentTime!
-  ApplyTransform(CurrentTime);
-}
+void USCCurveAnimComponent::ApplyTransform() { ApplyTransform(CurrentTime); }
 
 void USCCurveAnimComponent::ApplyTransform(float SampleTime) {
   if (!AnimSequence) {
     return;
   }
-
-  // NormalizedTime was used before, but curve sampling usually expects absolute
-  // time unless the curve is explicitly 0..1. Standard UCurveFloat expects
-  // time. If we assume curves are authored in seconds, we should use SampleTime
-  // (ReferenceTime).
 
   FVector NewLoc = InitialLocation;
   FRotator NewRot = InitialRotation;
@@ -243,8 +238,6 @@ void USCCurveAnimComponent::ApplyTransform(float SampleTime) {
         NewLoc = Track.bAddBaseValue ? InitialLocation + Value : Value;
         break;
       case ESCCurveTrackType::VectorRotation:
-        // Mapping Vector X->Pitch, Y->Yaw, Z->Roll to match generic 3D vector
-        // to rotator
         if (Track.bAddBaseValue) {
           NewRot.Pitch = InitialRotation.Pitch + Value.X;
           NewRot.Yaw = InitialRotation.Yaw + Value.Y;
@@ -285,14 +278,10 @@ void USCCurveAnimComponent::ProcessNotifies(float OldTime, float NewTime) {
   for (int32 i = 0; i < AnimSequence->Notifies.Num(); ++i) {
     const FSCAnimNotify &Notify = AnimSequence->Notifies[i];
 
-    // If we are looping/resetting, we might want to handle that differently,
-    // but basic range check works for linear playback.
-
     if (FiredNotifyIndices.Contains(i))
       continue;
 
     bool bShouldTrigger = false;
-    // Check inclusive/exclusive correctly to avoid double firing on boundaries
     if (bIsForward) {
       bShouldTrigger = (Notify.Time > MinTime && Notify.Time <= MaxTime);
     } else {

@@ -6,6 +6,7 @@ Intermediate/
 Saved/
 DerivedDataCache/
 Build/           # UE sometimes creates extra build folders
+.agent/
 
 # IDE / Editor Files
 .vs/

@@ -20,7 +20,8 @@
 
 #define LOCTEXT_NAMESPACE "UK2Node_PlaySCAnimation"
 
-// Pin name constants
+#define LOCTEXT_NAMESPACE "UK2Node_PlaySCAnimation"
+
 const FName UK2Node_PlaySCAnimation::PN_Play(TEXT("Play"));
 const FName UK2Node_PlaySCAnimation::PN_PlayFromStart(TEXT("PlayFromStart"));
 const FName UK2Node_PlaySCAnimation::PN_Stop(TEXT("Stop"));
@@ -148,7 +149,6 @@ void UK2Node_PlaySCAnimation::ReconstructNode() {
 void UK2Node_PlaySCAnimation::PreloadRequiredAssets() {
   if (AnimSequence) {
     PreloadObject(AnimSequence);
-    // Ensure pins are reconstructed after force-loading the asset
     ReconstructNode();
   }
   Super::PreloadRequiredAssets();
@@ -203,7 +203,6 @@ void UK2Node_PlaySCAnimation::ExpandNode(
 
   const UEdGraphSchema_K2 *K2Schema = GetDefault<UEdGraphSchema_K2>();
 
-  // Helper to copy links from the node's input pin to an internal node's pin
   auto CopyInput = [&](const FName &NodePinName, UEdGraphNode *DestNode,
                        const FName &DestPinName) {
     UEdGraphPin *NodePin = FindPin(NodePinName);
@@ -213,16 +212,14 @@ void UK2Node_PlaySCAnimation::ExpandNode(
       DestPin->DefaultObject = NodePin->DefaultObject;
       DestPin->DefaultTextValue = NodePin->DefaultTextValue;
 
-      // Removed: Explicitly setting DefaultValue from path causes validation
-      // errors on Object pins. K2Node_CallFunction will use DefaultObject
-      // correctly.
+      DestPin->DefaultTextValue = NodePin->DefaultTextValue;
+
       if (!NodePin->DefaultObject) {
         DestPin->DefaultValue = NodePin->DefaultValue;
       }
     }
   };
 
-  // Helper to move links from the node's output pin to an internal node's pin
   auto MoveOutput = [&](const FName &NodePinName, UEdGraphNode *SourceNode,
                         const FName &SourcePinName) {
     UEdGraphPin *NodePin = FindPin(NodePinName);
@@ -399,8 +396,6 @@ void UK2Node_PlaySCAnimation::ExpandNode(
         for (const FSCAnimNotify &Notify : AnimSequence->Notifies) {
           Switch->AddPinToSwitchNode();
           UEdGraphPin *SwPin = Switch->Pins.Last();
-          // Ensure PinName matches the NotifyName for the Switch to route
-          // correctly
           SwPin->PinName = Notify.NotifyName;
           SwPin->PinFriendlyName = FText::FromName(Notify.NotifyName);
 

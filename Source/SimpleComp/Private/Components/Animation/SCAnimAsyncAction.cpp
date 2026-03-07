@@ -29,7 +29,6 @@ void USCAnimAsyncAction::Activate() {
   TargetComponent->OnAnimationNotify.AddDynamic(
       this, &USCAnimAsyncAction::HandleNotify);
 
-  // Start the animation!
   Play(true);
 }
 
@@ -81,7 +80,6 @@ void USCAnimAsyncAction::HandleFinished() {
       TargetComponent ? TargetComponent->GetPlaybackPosition() : 0.0f;
   Finished.Broadcast(NAME_None, static_cast<double>(FinalTime), 1.0);
 
-  // Clean up bindings to prevent duplicate events on next run
   Cleanup();
 }
 
