@@ -77,7 +77,7 @@ void USCSpawnerComponent::StopSpawn()
 
 void USCSpawnerComponent::ExecuteSpawning()
 {
-    if (!SpawnClass || !GetWorld())
+    if (!GetWorld())
         return;
 
     FVector BaseLocation = GetComponentLocation();
@@ -88,6 +88,12 @@ void USCSpawnerComponent::ExecuteSpawning()
 
     for (int32 i = 0; i < Count; ++i)
     {
+        TSubclassOf<AActor> SelectedClass = GetRandomSpawnClass();
+        if (!SelectedClass)
+        {
+            continue;
+        }
+
         FVector RandomLoc;
         if (SpawnShape == ESCSpawnShape::Box)
         {
@@ -134,7 +140,7 @@ void USCSpawnerComponent::ExecuteSpawning()
         FActorSpawnParameters Params;
         Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-        AActor* NewActor = GetWorld()->SpawnActor<AActor>(SpawnClass, RandomLoc, FinalRotation, Params);
+        AActor* NewActor = GetWorld()->SpawnActor<AActor>(SelectedClass, RandomLoc, FinalRotation, Params);
 
         if (NewActor)
         {
@@ -161,4 +167,43 @@ void USCSpawnerComponent::ExecuteSpawning()
             }
         }
     }
+}
+
+TSubclassOf<AActor> USCSpawnerComponent::GetRandomSpawnClass() const
+{
+    if (SpawnClass.Num() == 0)
+    {
+        return nullptr;
+    }
+
+    float TotalWeight = 0.0f;
+    for (const FSCWeightedSpawnClass& WeightedClass : SpawnClass)
+    {
+        if (WeightedClass.ActorClass && WeightedClass.Weight > 0.0f)
+        {
+            TotalWeight += WeightedClass.Weight;
+        }
+    }
+
+    if (TotalWeight <= 0.0f)
+    {
+        return nullptr;
+    }
+
+    float RandomValue = FMath::FRandRange(0.0f, TotalWeight);
+    float CurrentWeight = 0.0f;
+
+    for (const FSCWeightedSpawnClass& WeightedClass : SpawnClass)
+    {
+        if (WeightedClass.ActorClass && WeightedClass.Weight > 0.0f)
+        {
+            CurrentWeight += WeightedClass.Weight;
+            if (RandomValue <= CurrentWeight)
+            {
+                return WeightedClass.ActorClass;
+            }
+        }
+    }
+
+    return nullptr;
 }

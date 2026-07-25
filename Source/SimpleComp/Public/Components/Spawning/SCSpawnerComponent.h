@@ -2,30 +2,11 @@
 
 #include "Components/BoxComponent.h"
 #include "Core/Interfaces/SCMessageInterface.h"
+#include "Core/SCTypes.h"
 #include "CoreMinimal.h"
 #include "SCSpawnerComponent.generated.h"
 
-/** Defines the volume shape for spawning actors. */
-UENUM(BlueprintType)
-    enum class ESCSpawnShape : uint8
-    {
-        /** Use the standard Box Extent of the component. */
-        Box UMETA(DisplayName = "Box"),
-        /** Use independent X, Y, Z radii to form an Ellipsoid or Disc. */
-        Radius UMETA(DisplayName = "Radius (Ellipsoid)")
-    };
 
-    /** Defines how spawned actors are initially rotated. */
-    UENUM(BlueprintType)
-        enum class ESCSpawnerRotationMode : uint8
-        {
-            /** Actor's forward vector faces its initial velocity direction. */
-            FaceVelocity UMETA(DisplayName = "Face Velocity"),
-            /** Completely random rotation on all axes. */
-            Random UMETA(DisplayName = "Random"),
-            /** Random rotation constrained within Min/Max rotator ranges. */
-            Range UMETA(DisplayName = "Range")
-        };
 
         /**
          * SCSpawnerComponent: A high-performance spawning tool for Motion Design and
@@ -64,9 +45,9 @@ UENUM(BlueprintType)
                     meta = (EditCondition = "SpawnShape == ESCSpawnShape::Radius", EditConditionHides))
                 FVector SpawnRadius = FVector(100.f, 100.f, 100.f);
 
-                /** The class of Actor to be spawned. */
+                /** List of classes to spawn with their respective weights. */
                 UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Spawner|Settings")
-                TSubclassOf<AActor> SpawnClass = nullptr;
+                TArray<FSCWeightedSpawnClass> SpawnClass;
 
                 /** Number of actors to spawn in a single execution or flow step. */
                 UPROPERTY(EditAnywhere, BlueprintReadWrite, Interp, Category = "SimpleComp|Spawner|Settings")
@@ -160,6 +141,12 @@ UENUM(BlueprintType)
 
                 /** Handles the end of a Flow cycle and triggers Repeat logic. */
                 void OnFlowDurationExpired();
+
+                /** 
+                 * Selects a random class based on weights. 
+                 * Returns nullptr if the array is empty or contains no valid classes.
+                 */
+                TSubclassOf<AActor> GetRandomSpawnClass() const;
 
                 bool bIsManuallyStopped = false;
 

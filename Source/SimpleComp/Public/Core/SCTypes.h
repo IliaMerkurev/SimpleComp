@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/SubclassOf.h"
 #include "SCTypes.generated.h"
 
 /**
@@ -95,3 +96,40 @@ UENUM(BlueprintType)
                             meta = (EditCondition = "Mode == ESCAxisMode::Limited"))
                         float Max = 90.0f;
                     };
+
+    /** Defines the volume shape for spawning actors. */
+    UENUM(BlueprintType)
+    enum class ESCSpawnShape : uint8
+    {
+        /** Use the standard Box Extent of the component. */
+        Box UMETA(DisplayName = "Box"),
+        /** Use independent X, Y, Z radii to form an Ellipsoid or Disc. */
+        Radius UMETA(DisplayName = "Radius (Ellipsoid)")
+    };
+
+    /** Defines how spawned actors are initially rotated. */
+    UENUM(BlueprintType)
+    enum class ESCSpawnerRotationMode : uint8
+    {
+        /** Actor's forward vector faces its initial velocity direction. */
+        FaceVelocity UMETA(DisplayName = "Face Velocity"),
+        /** Completely random rotation on all axes. */
+        Random UMETA(DisplayName = "Random"),
+        /** Random rotation constrained within Min/Max rotator ranges. */
+        Range UMETA(DisplayName = "Range")
+    };
+
+    /** Defines a class to spawn along with its relative weight (probability). */
+    USTRUCT(BlueprintType)
+    struct FSCWeightedSpawnClass
+    {
+        GENERATED_BODY()
+
+        /** The class of Actor to be spawned. */
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Spawner|Settings")
+        TSubclassOf<class AActor> ActorClass = nullptr;
+
+        /** The relative weight of this class. Higher weight increases the chance of being selected. */
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Spawner|Settings", meta = (ClampMin = "0.0", UIMin = "0.0"))
+        float Weight = 1.0f;
+    };
