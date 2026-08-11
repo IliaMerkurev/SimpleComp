@@ -16,6 +16,14 @@ void USCSphereRollComponent::BeginPlay()
     ensure(GetOwner() != nullptr);
     LastLocation = GetComponentLocation();
     CurrentRotationQuat = GetRelativeRotation().Quaternion();
+    InitialRotationQuat = CurrentRotationQuat;
+}
+
+void USCSphereRollComponent::ReturnToInitialRotation(const float Speed, const bool bSetRotationActive)
+{
+    bIsReturningToInitialRotation = true;
+    ReturnSpeed = Speed;
+    bIsRotationActive = bSetRotationActive;
 }
 
 void USCSphereRollComponent::TickComponent(float DeltaTime, ELevelTick TickType,
@@ -31,25 +39,41 @@ void USCSphereRollComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 
     if (!MoveDelta.IsNearlyZero(0.01f))
     {
-        const float DistanceMoved = MoveDelta.Size();
-        const FVector MoveDir = MoveDelta.GetSafeNormal();
-
-        FVector RotationAxis = FVector::CrossProduct(FVector::UpVector, MoveDir);
-
-        if (!RotationAxis.IsNearlyZero())
+        if (bIsRotationActive)
         {
-            RotationAxis.Normalize();
+            bIsReturningToInitialRotation = false;
 
-            float RotationAngle = DistanceMoved / SphereRadius;
-            if (bInvertRotation)
-                RotationAngle *= -1.0f;
+            const float DistanceMoved = MoveDelta.Size();
+            const FVector MoveDir = MoveDelta.GetSafeNormal();
 
-            FQuat DeltaQuat = FQuat(RotationAxis, RotationAngle);
+            FVector RotationAxis = FVector::CrossProduct(FVector::UpVector, MoveDir);
 
-            // Accumulate rotation (order matters: Delta * Current for world-axis aligned rotation)
-            CurrentRotationQuat = DeltaQuat * CurrentRotationQuat;
+            if (!RotationAxis.IsNearlyZero())
+            {
+                RotationAxis.Normalize();
 
-            SetRelativeRotation(CurrentRotationQuat);
+                float RotationAngle = DistanceMoved / SphereRadius;
+                if (bInvertRotation)
+                    RotationAngle *= -1.0f;
+
+                FQuat DeltaQuat = FQuat(RotationAxis, RotationAngle);
+
+                // Accumulate rotation (order matters: Delta * Current for world-axis aligned rotation)
+                CurrentRotationQuat = DeltaQuat * CurrentRotationQuat;
+
+                SetRelativeRotation(CurrentRotationQuat);
+            }
+        }
+    }
+    
+    if (bIsReturningToInitialRotation)
+    {
+        CurrentRotationQuat = FMath::QInterpTo(CurrentRotationQuat, InitialRotationQuat, DeltaTime, ReturnSpeed);
+        SetRelativeRotation(CurrentRotationQuat);
+
+        if (CurrentRotationQuat.Equals(InitialRotationQuat, 0.001f))
+        {
+            bIsReturningToInitialRotation = false;
         }
     }
 

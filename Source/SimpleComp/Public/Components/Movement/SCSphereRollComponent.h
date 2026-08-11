@@ -24,6 +24,14 @@ UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayNa
         virtual void TickComponent(float DeltaTime, ELevelTick TickType,
             FActorComponentTickFunction* ThisTickFunction) override;
 
+        /** Smoothly interpolates the component back to its initial rotation. */
+        UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
+        void ReturnToInitialRotation(const float Speed = 5.0f, const bool bSetRotationActive = false);
+
+        /** Whether the sphere rotation based on movement is currently active. */
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Sphere Settings", Interp)
+        bool bIsRotationActive = true;
+
         /** Radius of the sphere in centimeters. Used to calculate rotation angle. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Sphere Settings", Interp)
         float SphereRadius = 50.0f;
@@ -35,4 +43,7 @@ UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayNa
     private:
         FVector LastLocation;
         FQuat CurrentRotationQuat;
+        FQuat InitialRotationQuat;
+        bool bIsReturningToInitialRotation = false;
+        float ReturnSpeed = 0.0f;
     };
