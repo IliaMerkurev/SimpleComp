@@ -97,9 +97,10 @@ void USCSpawnerComponent::ExecuteSpawning()
         FVector RandomLoc;
         if (SpawnShape == ESCSpawnShape::Box)
         {
-            FVector Extent = GetScaledBoxExtent();
-            FBox SpawnBox(BaseLocation - Extent, BaseLocation + Extent);
-            RandomLoc = FMath::RandPointInBox(SpawnBox);
+            FVector Extent = GetUnscaledBoxExtent();
+            FBox LocalBox(-Extent, Extent);
+            FVector LocalPoint = FMath::RandPointInBox(LocalBox);
+            RandomLoc = CompTransform.TransformPosition(LocalPoint);
         }
         else
         {
