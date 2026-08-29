@@ -46,7 +46,7 @@
 | :--- | :--- | :--- | :--- |
 | `USCSpawnerComponent` | `SCSpawnerComponent.h` | Universal Spawner | Handles actor lifecycle, quantity control, and offsets. |
 | `USCStackComponent` | `SCStackComponent.h` | Resource Stack | HISM-based grid stack with slot reservation state machine (`Free → Reserved → Filled`), editor viewport preview toggle (`bShowPreview`), timer-driven scale-in animation, and `Explode()` burst. |
-| `USCCollectorComponent` | `SCCollectorComponent.h` | Resource Collector | Dynamically spawned Sphere/Box trigger that detects `ISCCollectableInterface` Actors, requests a stack slot, disables resource collision, and calls `InitFlight`. |
+| `USCCollectorComponent` | `SCCollectorComponent.h` | Resource Collector | `USceneComponent` based trigger (Sphere/Box) that detects `ISCCollectableInterface` Actors. Resolves target stack via `FComponentReference`, requests a slot, calls `InitFlight`, and broadcasts `OnResourceCollected` Blueprint delegate. |
 
 ### 🔌 Interfaces (`.../Core/Interfaces/`)
 | Interface | File | Purpose | Methods |

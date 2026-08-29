@@ -1,8 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Components/ActorComponent.h"
+#include "Components/SceneComponent.h"
+#include "Engine/EngineTypes.h"
 #include "SCCollectorComponent.generated.h"
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnResourceCollectedSignature, AActor*, CollectedResource);
 
 class USCStackComponent;
 class UPrimitiveComponent;
@@ -32,12 +35,20 @@ enum class ESCCollectorShape : uint8
  * Communicates with resources via ISCCollectableInterface.
  */
 UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayName = "Simple Collector Component"))
-class SIMPLECOMP_API USCCollectorComponent : public UActorComponent
+class SIMPLECOMP_API USCCollectorComponent : public USceneComponent
 {
     GENERATED_BODY()
 
 public:
     USCCollectorComponent();
+
+    // -----------------------------------------------------------------------
+    // Events
+    // -----------------------------------------------------------------------
+
+    /** Fired when a valid collectable resource enters the trigger volume and is successfully assigned a slot. */
+    UPROPERTY(BlueprintAssignable, Category = "SimpleComp|Collector|Events")
+    FOnResourceCollectedSignature OnResourceCollected;
 
     // -----------------------------------------------------------------------
     // Configuration — Trigger
@@ -63,10 +74,10 @@ public:
 
     /**
      * The Stack Component that collected resources will be sent to.
-     * Assign an existing USCStackComponent on any Actor in the scene.
+     * Can point to a stack in the same Blueprint or on a different Actor in the level.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Collection")
-    TObjectPtr<USCStackComponent> TargetStackComponent;
+    FComponentReference StackComponentRef;
 
     /**
      * Only Actors of this class (or a subclass) that also implement ISCCollectableInterface

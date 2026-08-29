@@ -48,12 +48,6 @@ void USCCollectorComponent::CreateTriggerVolume()
         return;
     }
 
-    USceneComponent* OwnerRoot = Owner->GetRootComponent();
-    if (!ensure(IsValid(OwnerRoot)))
-    {
-        return;
-    }
-
     UPrimitiveComponent* NewVolume = nullptr;
 
     if (CollisionShape == ESCCollectorShape::Sphere)
@@ -61,7 +55,8 @@ void USCCollectorComponent::CreateTriggerVolume()
         USphereComponent* Sphere = NewObject<USphereComponent>(
             Owner,
             USphereComponent::StaticClass(),
-            TEXT("SCCollectorSphere"));
+            TEXT("SCCollectorSphere"),
+            RF_Transient);
 
         Sphere->SetSphereRadius(SphereRadius);
         NewVolume = Sphere;
@@ -71,7 +66,8 @@ void USCCollectorComponent::CreateTriggerVolume()
         UBoxComponent* Box = NewObject<UBoxComponent>(
             Owner,
             UBoxComponent::StaticClass(),
-            TEXT("SCCollectorBox"));
+            TEXT("SCCollectorBox"),
+            RF_Transient);
 
         Box->SetBoxExtent(BoxExtent);
         NewVolume = Box;
@@ -80,7 +76,7 @@ void USCCollectorComponent::CreateTriggerVolume()
     NewVolume->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
     NewVolume->SetGenerateOverlapEvents(true);
     NewVolume->RegisterComponent();
-    NewVolume->AttachToComponent(OwnerRoot, FAttachmentTransformRules::KeepRelativeTransform);
+    NewVolume->AttachToComponent(this, FAttachmentTransformRules::KeepRelativeTransform);
 
     TriggerVolume = NewVolume;
 
@@ -106,10 +102,11 @@ void USCCollectorComponent::OnTriggerBeginOverlap(
         return;
     }
 
+    USCStackComponent* TargetStackComponent = Cast<USCStackComponent>(StackComponentRef.GetComponent(GetOwner()));
     if (!IsValid(TargetStackComponent))
     {
         UE_LOG(LogSCCollector, Warning,
-            TEXT("USCCollectorComponent on '%s': TargetStackComponent is not set."),
+            TEXT("USCCollectorComponent on '%s': StackComponentRef is not valid or not set."),
             *GetOwner()->GetName());
         return;
     }
@@ -145,4 +142,6 @@ void USCCollectorComponent::OnTriggerBeginOverlap(
     }
 
     ISCCollectableInterface::Execute_InitFlight(OtherActor, TargetStackComponent, SlotID);
+    
+    OnResourceCollected.Broadcast(OtherActor);
 }

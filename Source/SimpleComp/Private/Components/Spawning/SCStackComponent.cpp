@@ -44,6 +44,11 @@ void USCStackComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
         bNeedsTransformUpdate = false;
     }
 
+    if (GetTotalCapacity() != SlotStatuses.Num())
+    {
+        InitializeRuntimeState();
+    }
+
     if (!bEnableFillAnimation)
     {
         return;
@@ -152,25 +157,18 @@ void USCStackComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
         return;
     }
 
-    const FName PropertyName = PropertyChangedEvent.GetPropertyName();
-    if (PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, ElementMesh) ||
-        PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, Rows) ||
-        PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, Columns) ||
-        PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, Layers) ||
-        PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, TargetElementScale) ||
-        PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, ManualPadding) ||
-        PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, bAutoCalculatePadding) ||
-        PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, CurveMode) ||
-        PropertyName == GET_MEMBER_NAME_CHECKED(USCStackComponent, bShowPreview))
-    {
-        CreateAndAttachHISM();
-        UpdateEditorPreview();
-    }
+    CreateAndAttachHISM();
+    UpdateEditorPreview();
 }
 
 void USCStackComponent::OnComponentCreated()
 {
     Super::OnComponentCreated();
+
+#if WITH_EDITOR
+    CreateAndAttachHISM();
+    UpdateEditorPreview();
+#endif
 }
 #endif
 
@@ -186,17 +184,6 @@ void USCStackComponent::CreateAndAttachHISM()
         return;
     }
 
-    // Cleanup leaked components from previous editor bugs
-    TArray<UHierarchicalInstancedStaticMeshComponent*> LeakedHISMs;
-    Owner->GetComponents(UHierarchicalInstancedStaticMeshComponent::StaticClass(), LeakedHISMs);
-    for (UHierarchicalInstancedStaticMeshComponent* Leaked : LeakedHISMs)
-    {
-        if (Leaked != StackHISM && Leaked->GetName().StartsWith(TEXT("SCStackHISM")))
-        {
-            Leaked->DestroyComponent();
-        }
-    }
-
     if (IsValid(StackHISM) && StackHISM->GetOwner() == Owner)
     {
         if (!StackHISM->IsRegistered())
@@ -210,8 +197,6 @@ void USCStackComponent::CreateAndAttachHISM()
         return;
     }
 
-
-
     StackHISM = NewObject<UHierarchicalInstancedStaticMeshComponent>(
         Owner,
         UHierarchicalInstancedStaticMeshComponent::StaticClass(),
@@ -223,10 +208,9 @@ void USCStackComponent::CreateAndAttachHISM()
         return;
     }
 
-
-    StackHISM->CreationMethod = EComponentCreationMethod::Instance;
     StackHISM->SetVisibility(true);
     StackHISM->SetHiddenInGame(false);
+    StackHISM->BoundsScale = 10000.0f; // Force bounds to remain huge even if instances shrink
     StackHISM->SetupAttachment(this);
     StackHISM->RegisterComponent();
 }
@@ -267,11 +251,13 @@ void USCStackComponent::InitializeRuntimeState()
 
     StackHISM->AddInstances(InitialTransforms, false);
 
-    // Now hide them by setting scale to 0. The HISM will retain its large bounds and prevent frustum culling.
+    // Now hide them by setting scale to a near-zero value.
+    // We cannot use exactly FVector::ZeroVector, because if a HISM tree rebuilds while all instances
+    // are exactly 0 scale, its bounds collapse to 0, causing it to be permanently frustum culled.
     for (int32 i = 0; i < TotalSlots; ++i)
     {
         FTransform HiddenTransform = InitialTransforms[i];
-        HiddenTransform.SetScale3D(FVector::ZeroVector);
+        HiddenTransform.SetScale3D(FVector(0.0001f));
         StackHISM->UpdateInstanceTransform(i, HiddenTransform, false, false, false);
     }
     
@@ -313,9 +299,17 @@ void USCStackComponent::UpdateEditorPreview()
     TArray<FTransform> PreviewTransforms;
     PreviewTransforms.Reserve(TotalSlots);
 
+    const int32 TargetCount = FMath::RoundToInt(FMath::Clamp(FillLevel, 0.0f, 1.0f) * static_cast<float>(TotalSlots));
+
     for (int32 i = 0; i < TotalSlots; ++i)
     {
         FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
+        
+        if (i >= TargetCount)
+        {
+            SlotTransform.SetScale3D(FVector(0.0001f));
+        }
+        
         PreviewTransforms.Add(SlotTransform);
     }
 
@@ -603,7 +597,7 @@ void USCStackComponent::RefreshStackTransforms()
         
         if (SlotStatuses[i] == ESCSlotStatus::Free)
         {
-            Deformed.SetScale3D(FVector::ZeroVector);
+            Deformed.SetScale3D(FVector(0.0001f));
         }
         
         StackHISM->UpdateInstanceTransform(i, Deformed, false, false, false);
@@ -837,7 +831,7 @@ void USCStackComponent::SetFillLevel(float InFillLevel)
             {
                 SlotStatuses[i] = ESCSlotStatus::Free;
                 FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-                HiddenTransform.SetScale3D(FVector::ZeroVector);
+                HiddenTransform.SetScale3D(FVector(0.0001f));
                 StackHISM->UpdateInstanceTransform(i, HiddenTransform, false, false);
                 --SlotsToRelease;
             }
@@ -906,7 +900,7 @@ void USCStackComponent::TickSlotAnimation(int32 SlotID)
         AnimState->Progress + (AnimationTickInterval / ScaleAnimationDuration),
         0.0f, 1.0f);
 
-    const FVector CurrentScale = FMath::Lerp(FVector::ZeroVector, TargetElementScale, AnimState->Progress);
+    const FVector CurrentScale = FMath::Lerp(FVector(0.0001f), TargetElementScale, AnimState->Progress);
 
     FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
     SlotTransform.SetScale3D(CurrentScale);
