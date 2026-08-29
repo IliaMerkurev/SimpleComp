@@ -45,6 +45,14 @@
 | Class Name | File | Purpose | Responsibilities |
 | :--- | :--- | :--- | :--- |
 | `USCSpawnerComponent` | `SCSpawnerComponent.h` | Universal Spawner | Handles actor lifecycle, quantity control, and offsets. |
+| `USCStackComponent` | `SCStackComponent.h` | Resource Stack | HISM-based grid stack with slot reservation state machine (`Free → Reserved → Filled`), editor viewport preview toggle (`bShowPreview`), timer-driven scale-in animation, and `Explode()` burst. |
+| `USCCollectorComponent` | `SCCollectorComponent.h` | Resource Collector | Dynamically spawned Sphere/Box trigger that detects `ISCCollectableInterface` Actors, requests a stack slot, disables resource collision, and calls `InitFlight`. |
+
+### 🔌 Interfaces (`.../Core/Interfaces/`)
+| Interface | File | Purpose | Methods |
+| :--- | :--- | :--- | :--- |
+| `ISCMessageInterface` | `SCMessageInterface.h` | Universal Messaging | `OnReceiveSCMessage(Payload)` — generic event-driven messaging between components. |
+| `ISCCollectableInterface` | `SCCollectableInterface.h` | Collection Protocol | `InitFlight(TargetStack, SlotID)` — implemented by resource Actors. Triggers flight logic and must call `TargetStack->ConfirmArrival(SlotID)` upon arrival. |
 
 ## 🧪 Implementation Checklist
 - [ ] `UCLASS` has `meta = (DisplayName = "Friendly Name")`.
