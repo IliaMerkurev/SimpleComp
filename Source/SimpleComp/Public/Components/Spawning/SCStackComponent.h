@@ -365,6 +365,7 @@ private:
     void RefreshStackTransforms();
     void BuildCachedCurve();
 
+    void StartSlotAnimation(int32 SlotID);
     void TickSlotAnimation(int32 SlotID);
     void ClearAllAnimations();
 

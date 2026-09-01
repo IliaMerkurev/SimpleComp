@@ -85,7 +85,7 @@ void USCCollectorComponent::UpdateVolumeState()
         return;
     }
 
-    if (CollisionShape == ESCCollectorShape::Sphere)
+    if (ActiveShapeType == ESCCollectorShape::Sphere)
     {
         SphereVolume->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
         SphereVolume->SetGenerateOverlapEvents(true);

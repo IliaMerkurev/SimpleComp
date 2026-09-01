@@ -46,8 +46,8 @@ public:
     // -----------------------------------------------------------------------
 
     /** Geometric shape of the overlap trigger volume. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Trigger")
-    ESCCollectorShape CollisionShape = ESCCollectorShape::Sphere;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Shape Selection")
+    ESCCollectorShape ActiveShapeType = ESCCollectorShape::Sphere;
 
     // -----------------------------------------------------------------------
     // Configuration — Collection
@@ -72,11 +72,11 @@ public:
     // Runtime — Trigger (read-only)
     // -----------------------------------------------------------------------
 
-    /** The sphere trigger volume. Active when CollisionShape is Sphere. */
+    /** The sphere trigger volume. Active when ActiveShapeType is Sphere. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SimpleComp|Collector")
     TObjectPtr<class USphereComponent> SphereVolume;
 
-    /** The box trigger volume. Active when CollisionShape is Box. */
+    /** The box trigger volume. Active when ActiveShapeType is Box. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SimpleComp|Collector")
     TObjectPtr<class UBoxComponent> BoxVolume;
 

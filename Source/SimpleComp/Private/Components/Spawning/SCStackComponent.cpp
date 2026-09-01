@@ -75,7 +75,7 @@ void USCStackComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
             if (SlotStatuses[i] == ESCSlotStatus::Free)
             {
                 SlotStatuses[i] = ESCSlotStatus::Reserved;
-                ConfirmArrival(i);
+                StartSlotAnimation(i);
                 --SlotsNeeded;
             }
         }
@@ -311,17 +311,9 @@ void USCStackComponent::UpdateEditorPreview()
     TArray<FTransform> PreviewTransforms;
     PreviewTransforms.Reserve(TotalSlots);
 
-    const int32 TargetCount = FMath::RoundToInt(FMath::Clamp(FillLevel, 0.0f, 1.0f) * static_cast<float>(TotalSlots));
-
     for (int32 i = 0; i < TotalSlots; ++i)
     {
         FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-        
-        if (i >= TargetCount)
-        {
-            SlotTransform.SetScale3D(FVector(0.0001f));
-        }
-        
         PreviewTransforms.Add(SlotTransform);
     }
 
@@ -670,17 +662,11 @@ void USCStackComponent::ConfirmArrival(int32 SlotID)
         return;
     }
 
-    FSCSlotAnimState& AnimState = ActiveAnimations.FindOrAdd(SlotID);
-    AnimState.Progress = 0.0f;
+    FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
+    SlotTransform.SetScale3D(TargetElementScale);
+    StackHISM->UpdateInstanceTransform(SlotID, SlotTransform, false, false, true);
 
-    FTimerDelegate Delegate;
-    Delegate.BindUObject(this, &USCStackComponent::TickSlotAnimation, SlotID);
-
-    World->GetTimerManager().SetTimer(
-        AnimState.TimerHandle,
-        Delegate,
-        AnimationTickInterval,
-        true);
+    OnSlotFilled(SlotID);
 }
 
 void USCStackComponent::ReleaseSlot(int32 SlotID)
@@ -860,7 +846,7 @@ void USCStackComponent::ProcessNextPendingSlot()
         return;
     }
 
-    ConfirmArrival(SlotID);
+    StartSlotAnimation(SlotID);
 
     if (!PendingFillSlots.IsEmpty())
     {
@@ -899,6 +885,34 @@ void USCStackComponent::CancelPendingFill()
 // ---------------------------------------------------------------------------
 // Animation
 // ---------------------------------------------------------------------------
+
+void USCStackComponent::StartSlotAnimation(int32 SlotID)
+{
+    if (!SlotStatuses.IsValidIndex(SlotID) || SlotStatuses[SlotID] != ESCSlotStatus::Reserved)
+    {
+        return;
+    }
+
+    SlotStatuses[SlotID] = ESCSlotStatus::Filled;
+
+    UWorld* World = GetWorld();
+    if (!ensure(IsValid(World)))
+    {
+        return;
+    }
+
+    FSCSlotAnimState& AnimState = ActiveAnimations.FindOrAdd(SlotID);
+    AnimState.Progress = 0.0f;
+
+    FTimerDelegate Delegate;
+    Delegate.BindUObject(this, &USCStackComponent::TickSlotAnimation, SlotID);
+
+    World->GetTimerManager().SetTimer(
+        AnimState.TimerHandle,
+        Delegate,
+        AnimationTickInterval,
+        true);
+}
 
 void USCStackComponent::TickSlotAnimation(int32 SlotID)
 {
