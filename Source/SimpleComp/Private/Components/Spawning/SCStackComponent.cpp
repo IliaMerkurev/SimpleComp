@@ -13,6 +13,12 @@ USCStackComponent::USCStackComponent()
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = false;
     bTickInEditor = true;
+    
+    StackHISM = CreateDefaultSubobject<UHierarchicalInstancedStaticMeshComponent>(TEXT("SCStackHISM"));
+    StackHISM->SetupAttachment(this);
+    StackHISM->SetVisibility(true);
+    StackHISM->SetHiddenInGame(false);
+    StackHISM->BoundsScale = 10000.0f; // Force bounds to remain huge even if instances shrink
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +108,19 @@ void USCStackComponent::OnRegister()
 {
     PrimaryComponentTick.bCanEverTick = true;
     Super::OnRegister();
+
+    if (StackHISM)
+    {
+        if (StackHISM->GetAttachParent() != this)
+        {
+            StackHISM->SetupAttachment(this);
+        }
+        
+        if (!StackHISM->IsRegistered())
+        {
+            StackHISM->RegisterComponent();
+        }
+    }
 }
 
 void USCStackComponent::BeginPlay()
@@ -110,7 +129,15 @@ void USCStackComponent::BeginPlay()
 
     ensure(GetOwner() != nullptr);
 
-    CreateAndAttachHISM();
+    if (bEnableCollision)
+    {
+        StackHISM->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    }
+    else
+    {
+        StackHISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+
     InitializeRuntimeState();
 
     if (bEnableFillAnimation || CurveMode == ESCStackCurveMode::Inertia)
@@ -139,11 +166,7 @@ void USCStackComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void USCStackComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
 {
-    if (IsValid(StackHISM))
-    {
-        StackHISM->DestroyComponent();
-        StackHISM = nullptr;
-    }
+    // Unreal Engine natively handles destruction of CreateDefaultSubobject components.
     Super::OnComponentDestroyed(bDestroyingHierarchy);
 }
 
@@ -157,72 +180,6 @@ void USCStackComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
         return;
     }
 
-    CreateAndAttachHISM();
-    UpdateEditorPreview();
-}
-
-void USCStackComponent::OnComponentCreated()
-{
-    Super::OnComponentCreated();
-
-#if WITH_EDITOR
-    CreateAndAttachHISM();
-    UpdateEditorPreview();
-#endif
-}
-#endif
-
-// ---------------------------------------------------------------------------
-// Initialization & Preview
-// ---------------------------------------------------------------------------
-
-void USCStackComponent::CreateAndAttachHISM()
-{
-    AActor* Owner = GetOwner();
-    if (!IsValid(Owner))
-    {
-        return;
-    }
-
-    // Always clean up any existing transient HISMs that might have leaked from the editor or previous runs.
-    // We MUST create a fresh one to guarantee the render state initializes correctly at runtime.
-    TArray<UHierarchicalInstancedStaticMeshComponent*> LeakedHISMs;
-    Owner->GetComponents(UHierarchicalInstancedStaticMeshComponent::StaticClass(), LeakedHISMs);
-    for (UHierarchicalInstancedStaticMeshComponent* Leaked : LeakedHISMs)
-    {
-        if (Leaked != StackHISM && Leaked->GetName().StartsWith(TEXT("SCStackHISM")))
-        {
-            Leaked->DestroyComponent();
-        }
-    }
-
-    if (IsValid(StackHISM) && StackHISM->GetOwner() == Owner)
-    {
-        if (!StackHISM->IsRegistered())
-        {
-            StackHISM->RegisterComponent();
-        }
-        if (StackHISM->GetAttachParent() != this)
-        {
-            StackHISM->SetupAttachment(this);
-        }
-        return;
-    }
-
-    StackHISM = NewObject<UHierarchicalInstancedStaticMeshComponent>(
-        Owner,
-        UHierarchicalInstancedStaticMeshComponent::StaticClass(),
-        MakeUniqueObjectName(Owner, UHierarchicalInstancedStaticMeshComponent::StaticClass(), TEXT("SCStackHISM")),
-        RF_Transient);
-
-    if (!IsValid(StackHISM))
-    {
-        return;
-    }
-
-    StackHISM->SetVisibility(true);
-    StackHISM->SetHiddenInGame(false);
-    
     if (bEnableCollision)
     {
         StackHISM->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -231,11 +188,32 @@ void USCStackComponent::CreateAndAttachHISM()
     {
         StackHISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     }
-    
-    StackHISM->BoundsScale = 10000.0f; // Force bounds to remain huge even if instances shrink
-    StackHISM->SetupAttachment(this);
-    StackHISM->RegisterComponent();
+
+    UpdateEditorPreview();
 }
+
+void USCStackComponent::OnComponentCreated()
+{
+    Super::OnComponentCreated();
+
+#if WITH_EDITOR
+    if (bEnableCollision)
+    {
+        StackHISM->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    }
+    else
+    {
+        StackHISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+
+    UpdateEditorPreview();
+#endif
+}
+#endif
+
+// ---------------------------------------------------------------------------
+// Initialization & Preview
+// ---------------------------------------------------------------------------
 
 void USCStackComponent::InitializeRuntimeState()
 {
@@ -328,6 +306,9 @@ void USCStackComponent::UpdateEditorPreview()
     }
 
     StackHISM->AddInstances(PreviewTransforms, false);
+    
+    StackHISM->BuildTreeIfOutdated(true, false);
+    StackHISM->MarkRenderStateDirty();
 }
 
 // ---------------------------------------------------------------------------

@@ -358,7 +358,6 @@ protected:
 #endif
 
 private:
-    void CreateAndAttachHISM();
     void InitializeRuntimeState();
     void UpdateEditorPreview();
 
