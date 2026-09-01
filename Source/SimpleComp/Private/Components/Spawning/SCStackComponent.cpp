@@ -222,6 +222,16 @@ void USCStackComponent::CreateAndAttachHISM()
 
     StackHISM->SetVisibility(true);
     StackHISM->SetHiddenInGame(false);
+    
+    if (bEnableCollision)
+    {
+        StackHISM->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    }
+    else
+    {
+        StackHISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+    
     StackHISM->BoundsScale = 10000.0f; // Force bounds to remain huge even if instances shrink
     StackHISM->SetupAttachment(this);
     StackHISM->RegisterComponent();
@@ -588,24 +598,36 @@ void USCStackComponent::RefreshStackTransforms()
         return;
     }
     
-    for (int32 i = 0; i < SlotStatuses.Num(); ++i)
+    const int32 NumSlots = SlotStatuses.Num();
+    TArray<FTransform> NewTransforms;
+    NewTransforms.SetNumUninitialized(NumSlots);
+    
+    for (int32 i = 0; i < NumSlots; ++i)
     {
-        // Don't update transform of animating slots from here to prevent stutter,
-        // ActiveAnimations overrides their transform in TickSlotAnimation.
+        // For animating slots, preserve their current transform 
+        // (which is being updated by TickSlotAnimation)
         if (ActiveAnimations.Contains(i))
         {
-            continue;
+            FTransform AnimTransform;
+            StackHISM->GetInstanceTransform(i, AnimTransform, false);
+            NewTransforms[i] = AnimTransform;
         }
-
-        FTransform Deformed = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-        
-        if (SlotStatuses[i] == ESCSlotStatus::Free)
+        else
         {
-            Deformed.SetScale3D(FVector(0.0001f));
+            FTransform Deformed = CalculateDeformedTransform(CalculateSlotGridTransform(i));
+            
+            if (SlotStatuses[i] == ESCSlotStatus::Free)
+            {
+                Deformed.SetScale3D(FVector(0.0001f));
+            }
+            
+            NewTransforms[i] = Deformed;
         }
-        
-        StackHISM->UpdateInstanceTransform(i, Deformed, false, true, false);
     }
+    
+    // Batch update all instances at once. This avoids rebuilding the HISM tree 
+    // repeatedly (N times per frame) and gives a massive performance boost.
+    StackHISM->BatchUpdateInstancesTransforms(0, NewTransforms, false, true, false);
 }
 
 // ---------------------------------------------------------------------------

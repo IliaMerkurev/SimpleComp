@@ -182,6 +182,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Grid")
     bool bAutoCalculatePadding = true;
 
+    /** Whether instances in the stack should have collision enabled. Disable for massive performance gains when using inertia. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Grid")
+    bool bEnableCollision = false;
+
     /**
      * Manual spacing between slot centers (cm). Active only when bAutoCalculatePadding is false.
      */
