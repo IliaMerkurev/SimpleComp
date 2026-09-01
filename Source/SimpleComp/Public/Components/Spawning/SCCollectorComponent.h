@@ -3,26 +3,13 @@
 #include "CoreMinimal.h"
 #include "Components/SceneComponent.h"
 #include "Engine/EngineTypes.h"
+#include "Core/SCTypes.h"
 #include "SCCollectorComponent.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnResourceCollectedSignature, AActor*, CollectedResource);
 
 class USCStackComponent;
 class UPrimitiveComponent;
-
-// ---------------------------------------------------------------------------
-// Collision Shape Enum
-// ---------------------------------------------------------------------------
-
-/** The geometric shape of the collection trigger volume. */
-UENUM(BlueprintType)
-enum class ESCCollectorShape : uint8
-{
-    /** Spherical trigger volume. */
-    Sphere UMETA(DisplayName = "Sphere"),
-    /** Box trigger volume. */
-    Box    UMETA(DisplayName = "Box")
-};
 
 // ---------------------------------------------------------------------------
 // Collector Component
@@ -50,6 +37,10 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "SimpleComp|Collector|Events")
     FOnResourceCollectedSignature OnResourceCollected;
 
+    /** Enable debug logs and on-screen messages for this collector. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Debug")
+    bool bEnableDebug = false;
+
     // -----------------------------------------------------------------------
     // Configuration — Trigger
     // -----------------------------------------------------------------------
@@ -58,27 +49,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Trigger")
     ESCCollectorShape CollisionShape = ESCCollectorShape::Sphere;
 
-    /** Radius of the sphere trigger (cm). Active when CollisionShape is Sphere. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Trigger",
-        meta = (EditCondition = "CollisionShape == ESCCollectorShape::Sphere", ClampMin = "1.0", UIMin = "1.0"))
-    float SphereRadius = 200.0f;
-
-    /** Half-extents of the box trigger (cm). Active when CollisionShape is Box. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Trigger",
-        meta = (EditCondition = "CollisionShape == ESCCollectorShape::Box"))
-    FVector BoxExtent = FVector(200.0f);
-
     // -----------------------------------------------------------------------
     // Configuration — Collection
     // -----------------------------------------------------------------------
 
     /**
      * The Stack Component that collected resources will be sent to.
-     * If left empty, the collector will automatically search for a USCStackComponent on this same Actor.
-     * Can point to a stack in the same Blueprint or on a different Actor in the level.
+     * If left completely empty (both Actor and Component), the collector will 
+     * automatically search for a USCStackComponent on this same Actor.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Collection")
-    TObjectPtr<USCStackComponent> TargetStackComponent;
+    FComponentReference StackComponentRef;
 
     /**
      * Only Actors of this class (or a subclass) that also implement ISCCollectableInterface
@@ -91,15 +72,25 @@ public:
     // Runtime — Trigger (read-only)
     // -----------------------------------------------------------------------
 
-    /** The dynamically created collision primitive. Created at BeginPlay. */
+    /** The sphere trigger volume. Active when CollisionShape is Sphere. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SimpleComp|Collector")
-    TObjectPtr<UPrimitiveComponent> TriggerVolume;
+    TObjectPtr<class USphereComponent> SphereVolume;
+
+    /** The box trigger volume. Active when CollisionShape is Box. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SimpleComp|Collector")
+    TObjectPtr<class UBoxComponent> BoxVolume;
 
 protected:
+    virtual void OnRegister() override;
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+#if WITH_EDITOR
+    virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
 private:
+    void UpdateVolumeState();
     UFUNCTION()
     void OnTriggerBeginOverlap(
         UPrimitiveComponent* OverlappedComponent,
@@ -108,6 +99,4 @@ private:
         int32                OtherBodyIndex,
         bool                 bFromSweep,
         const FHitResult&    SweepResult);
-
-    void CreateTriggerVolume();
 };

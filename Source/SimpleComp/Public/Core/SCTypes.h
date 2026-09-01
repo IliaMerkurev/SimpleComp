@@ -97,6 +97,16 @@ UENUM(BlueprintType)
                         float Max = 90.0f;
                     };
 
+    /** The geometric shape of the collection trigger volume. */
+    UENUM(BlueprintType)
+    enum class ESCCollectorShape : uint8
+    {
+        /** Spherical trigger volume. */
+        Sphere UMETA(DisplayName = "Sphere"),
+        /** Box trigger volume. */
+        Box    UMETA(DisplayName = "Box")
+    };
+
     /** Defines the volume shape for spawning actors. */
     UENUM(BlueprintType)
     enum class ESCSpawnShape : uint8
