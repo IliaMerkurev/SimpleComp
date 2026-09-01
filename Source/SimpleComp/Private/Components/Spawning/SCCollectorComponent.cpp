@@ -22,6 +22,11 @@ void USCCollectorComponent::BeginPlay()
     Super::BeginPlay();
 
     ensure(GetOwner() != nullptr);
+    
+    if (!IsValid(TargetStackComponent))
+    {
+        TargetStackComponent = GetOwner()->FindComponentByClass<USCStackComponent>();
+    }
 
     CreateTriggerVolume();
 }
@@ -102,11 +107,10 @@ void USCCollectorComponent::OnTriggerBeginOverlap(
         return;
     }
 
-    USCStackComponent* TargetStackComponent = Cast<USCStackComponent>(StackComponentRef.GetComponent(GetOwner()));
     if (!IsValid(TargetStackComponent))
     {
         UE_LOG(LogSCCollector, Warning,
-            TEXT("USCCollectorComponent on '%s': StackComponentRef is not valid or not set."),
+            TEXT("USCCollectorComponent on '%s': TargetStackComponent is not set and could not be found on Owner."),
             *GetOwner()->GetName());
         return;
     }
@@ -130,17 +134,7 @@ void USCCollectorComponent::OnTriggerBeginOverlap(
         return;
     }
 
-    TArray<UPrimitiveComponent*> ResourcePrimitives;
-    OtherActor->GetComponents<UPrimitiveComponent>(ResourcePrimitives);
-
-    for (UPrimitiveComponent* Primitive : ResourcePrimitives)
-    {
-        if (IsValid(Primitive))
-        {
-            Primitive->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        }
-    }
-
+    // Resource logic (physics/collision) is handled on the Blueprint side by the user.
     ISCCollectableInterface::Execute_InitFlight(OtherActor, TargetStackComponent, SlotID);
     
     OnResourceCollected.Broadcast(OtherActor);

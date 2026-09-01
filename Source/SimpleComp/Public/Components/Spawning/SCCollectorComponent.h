@@ -74,10 +74,11 @@ public:
 
     /**
      * The Stack Component that collected resources will be sent to.
+     * If left empty, the collector will automatically search for a USCStackComponent on this same Actor.
      * Can point to a stack in the same Blueprint or on a different Actor in the level.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Collector|Collection")
-    FComponentReference StackComponentRef;
+    TObjectPtr<USCStackComponent> TargetStackComponent;
 
     /**
      * Only Actors of this class (or a subclass) that also implement ISCCollectableInterface

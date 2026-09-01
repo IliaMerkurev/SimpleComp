@@ -89,7 +89,7 @@ void USCStackComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
             {
                 SlotStatuses[i] = ESCSlotStatus::Free;
                 FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-                HiddenTransform.SetScale3D(FVector::ZeroVector);
+                HiddenTransform.SetScale3D(FVector(0.0001f));
                 StackHISM->UpdateInstanceTransform(i, HiddenTransform, false, false);
                 --SlotsToRelease;
             }
@@ -182,6 +182,18 @@ void USCStackComponent::CreateAndAttachHISM()
     if (!IsValid(Owner))
     {
         return;
+    }
+
+    // Always clean up any existing transient HISMs that might have leaked from the editor or previous runs.
+    // We MUST create a fresh one to guarantee the render state initializes correctly at runtime.
+    TArray<UHierarchicalInstancedStaticMeshComponent*> LeakedHISMs;
+    Owner->GetComponents(UHierarchicalInstancedStaticMeshComponent::StaticClass(), LeakedHISMs);
+    for (UHierarchicalInstancedStaticMeshComponent* Leaked : LeakedHISMs)
+    {
+        if (Leaked != StackHISM && Leaked->GetName().StartsWith(TEXT("SCStackHISM")))
+        {
+            Leaked->DestroyComponent();
+        }
     }
 
     if (IsValid(StackHISM) && StackHISM->GetOwner() == Owner)
@@ -721,7 +733,7 @@ void USCStackComponent::Explode()
     for (int32 i = 0; i < SlotStatuses.Num(); ++i)
     {
         FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-        HiddenTransform.SetScale3D(FVector::ZeroVector);
+        HiddenTransform.SetScale3D(FVector(0.0001f));
         StackHISM->UpdateInstanceTransform(i, HiddenTransform, false, false);
         SlotStatuses[i] = ESCSlotStatus::Free;
     }
