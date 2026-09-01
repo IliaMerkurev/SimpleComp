@@ -604,9 +604,8 @@ void USCStackComponent::RefreshStackTransforms()
             Deformed.SetScale3D(FVector(0.0001f));
         }
         
-        StackHISM->UpdateInstanceTransform(i, Deformed, false, false, false);
+        StackHISM->UpdateInstanceTransform(i, Deformed, false, true, false);
     }
-    StackHISM->MarkRenderStateDirty();
 }
 
 // ---------------------------------------------------------------------------
@@ -664,7 +663,7 @@ void USCStackComponent::ConfirmArrival(int32 SlotID)
 
     FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
     SlotTransform.SetScale3D(TargetElementScale);
-    StackHISM->UpdateInstanceTransform(SlotID, SlotTransform, false, false, true);
+    StackHISM->UpdateInstanceTransform(SlotID, SlotTransform, false, true, true);
 
     OnSlotFilled(SlotID);
 }
