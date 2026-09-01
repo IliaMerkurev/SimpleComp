@@ -121,6 +121,10 @@ void USCStackComponent::OnRegister()
             StackHISM->RegisterComponent();
         }
     }
+
+#if WITH_EDITOR
+    UpdateEditorPreview();
+#endif
 }
 
 void USCStackComponent::BeginPlay()
