@@ -643,24 +643,28 @@ int32 USCStackComponent::RequestSlot()
     return INDEX_NONE;
 }
 
-void USCStackComponent::ConfirmArrival(int32 SlotID)
+void USCStackComponent::ConfirmArrival(int32 PassedSlotID)
 {
-    if (!SlotStatuses.IsValidIndex(SlotID))
+    // Due to auto-compacting, the original PassedSlotID might have shifted down.
+    // We simply find the lowest available Reserved slot and fill it.
+    int32 ActualSlotID = INDEX_NONE;
+    for (int32 i = 0; i < SlotStatuses.Num(); ++i)
     {
-        UE_LOG(LogSCStack, Warning, TEXT("USCStackComponent on '%s': ConfirmArrival called with invalid SlotID %d."),
-            *GetOwner()->GetName(), SlotID);
+        if (SlotStatuses[i] == ESCSlotStatus::Reserved)
+        {
+            ActualSlotID = i;
+            break;
+        }
+    }
+
+    if (ActualSlotID == INDEX_NONE)
+    {
+        UE_LOG(LogSCStack, Warning, TEXT("USCStackComponent on '%s': ConfirmArrival called but no Reserved slots found."),
+            *GetOwner()->GetName());
         return;
     }
 
-    if (SlotStatuses[SlotID] != ESCSlotStatus::Reserved)
-    {
-        UE_LOG(LogSCStack, Warning,
-            TEXT("USCStackComponent on '%s': ConfirmArrival called on SlotID %d which is not Reserved."),
-            *GetOwner()->GetName(), SlotID);
-        return;
-    }
-
-    SlotStatuses[SlotID] = ESCSlotStatus::Filled;
+    SlotStatuses[ActualSlotID] = ESCSlotStatus::Filled;
 
     UWorld* World = GetWorld();
     if (!ensure(IsValid(World)))
@@ -668,11 +672,12 @@ void USCStackComponent::ConfirmArrival(int32 SlotID)
         return;
     }
 
-    FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
+    FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(ActualSlotID));
     SlotTransform.SetScale3D(TargetElementScale);
-    StackHISM->UpdateInstanceTransform(SlotID, SlotTransform, false, true, true);
+    StackHISM->UpdateInstanceTransform(ActualSlotID, SlotTransform, false, true, true);
+    StackHISM->BuildTreeIfOutdated(true, false);
 
-    OnSlotFilled(SlotID);
+    OnSlotFilled(ActualSlotID);
 }
 
 void USCStackComponent::ReleaseSlot(int32 SlotID)
@@ -833,15 +838,57 @@ bool USCStackComponent::ExtractSpecificSlot(int32 SlotID, FTransform& OutTransfo
         OutTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID)) * GetComponentTransform();
     }
 
-    // Mark as free and hide the mesh
-    SlotStatuses[SlotID] = ESCSlotStatus::Free;
+    // Compact the stack: shift all slots above SlotID down by 1
+    for (int32 i = SlotID; i < SlotStatuses.Num() - 1; ++i)
+    {
+        SlotStatuses[i] = SlotStatuses[i + 1];
+    }
+    SlotStatuses[SlotStatuses.Num() - 1] = ESCSlotStatus::Free;
 
+    // Update ActiveAnimations map keys
+    TMap<int32, FSCSlotAnimState> NewAnimations;
+    for (const auto& Pair : ActiveAnimations)
+    {
+        int32 OldIdx = Pair.Key;
+        if (OldIdx > SlotID)
+        {
+            NewAnimations.Add(OldIdx - 1, Pair.Value);
+        }
+        else if (OldIdx < SlotID)
+        {
+            NewAnimations.Add(OldIdx, Pair.Value);
+        }
+    }
+    ActiveAnimations = MoveTemp(NewAnimations);
+
+    // Update HISM transforms for all shifted instances and hide the top free slot
     if (IsValid(StackHISM))
     {
-        FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
-        HiddenTransform.SetScale3D(FVector(0.0001f));
-        StackHISM->UpdateInstanceTransform(SlotID, HiddenTransform, false, false, false);
-        StackHISM->MarkRenderStateDirty();
+        for (int32 i = SlotID; i < SlotStatuses.Num(); ++i)
+        {
+            FTransform NewTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
+            
+            if (SlotStatuses[i] == ESCSlotStatus::Filled)
+            {
+                // If animating, keep it scaled down for the animation to handle
+                if (!ActiveAnimations.Contains(i))
+                {
+                    NewTransform.SetScale3D(TargetElementScale);
+                }
+                else
+                {
+                    NewTransform.SetScale3D(FVector(0.0001f));
+                }
+            }
+            else // Free or Reserved
+            {
+                NewTransform.SetScale3D(FVector(0.0001f));
+            }
+            
+            StackHISM->UpdateInstanceTransform(i, NewTransform, false, true, true);
+        }
+        
+        StackHISM->BuildTreeIfOutdated(true, false);
     }
 
     return true;
