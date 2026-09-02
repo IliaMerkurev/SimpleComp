@@ -28,6 +28,10 @@ USTRUCT(BlueprintType)
         /** Optional reference to a target Actor on the scene. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Message")
         TObjectPtr<AActor> TargetActor = nullptr;
+
+        /** Optional Transform data (e.g. target location, spawn point, etc.). */
+        UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Message")
+        FTransform TransformData;
     };
 
     UINTERFACE(MinimalAPI, BlueprintType)

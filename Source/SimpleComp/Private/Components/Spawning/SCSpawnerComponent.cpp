@@ -151,8 +151,8 @@ void USCSpawnerComponent::ExecuteSpawning()
                 Payload.Value = MessageValue;
                 Payload.StringMessage = MessageNote;
                 Payload.Sender = GetOwner();
-
                 Payload.TargetActor = TargetActor;
+                Payload.TransformData = FTransform(FinalRotation, RandomLoc);
 
                 ISCMessageInterface::Execute_OnReceiveSCMessage(NewActor, Payload);
             }

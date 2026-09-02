@@ -733,6 +733,120 @@ void USCStackComponent::Explode()
     StackHISM->MarkRenderStateDirty();
 }
 
+bool USCStackComponent::ExtractSlot(ESCStackExtractionOrder Order, int32& OutSlotID, FTransform& OutTransform)
+{
+    OutSlotID = INDEX_NONE;
+    
+    if (SlotStatuses.IsEmpty())
+    {
+        return false;
+    }
+
+    TArray<int32> CandidateSlots;
+
+    if (Order == ESCStackExtractionOrder::RandomFromAll)
+    {
+        for (int32 i = 0; i < SlotStatuses.Num(); ++i)
+        {
+            if (SlotStatuses[i] == ESCSlotStatus::Filled)
+            {
+                CandidateSlots.Add(i);
+            }
+        }
+    }
+    else if (Order == ESCStackExtractionOrder::FromLastAdded)
+    {
+        for (int32 i = SlotStatuses.Num() - 1; i >= 0; --i)
+        {
+            if (SlotStatuses[i] == ESCSlotStatus::Filled)
+            {
+                CandidateSlots.Add(i);
+                break; // Found the last added, stop searching
+            }
+        }
+    }
+    else
+    {
+        // Top layer strategies
+        const int32 SafeRows = FMath::Max(1, Rows);
+        const int32 SafeColumns = FMath::Max(1, Columns);
+        const int32 ItemsPerLayer = SafeRows * SafeColumns;
+
+        // Find highest layer with at least one filled slot
+        int32 HighestLayer = -1;
+        for (int32 i = SlotStatuses.Num() - 1; i >= 0; --i)
+        {
+            if (SlotStatuses[i] == ESCSlotStatus::Filled)
+            {
+                HighestLayer = i / ItemsPerLayer;
+                break;
+            }
+        }
+
+        if (HighestLayer >= 0)
+        {
+            const int32 StartIdx = HighestLayer * ItemsPerLayer;
+            const int32 EndIdx = FMath::Min(StartIdx + ItemsPerLayer, SlotStatuses.Num());
+
+            for (int32 i = StartIdx; i < EndIdx; ++i)
+            {
+                if (SlotStatuses[i] == ESCSlotStatus::Filled)
+                {
+                    CandidateSlots.Add(i);
+                }
+            }
+        }
+    }
+
+    if (CandidateSlots.IsEmpty())
+    {
+        return false;
+    }
+
+    if (Order == ESCStackExtractionOrder::FromFirstOnTopLayer || Order == ESCStackExtractionOrder::FromLastAdded)
+    {
+        OutSlotID = CandidateSlots[0];
+    }
+    else // Random variations
+    {
+        const int32 RandomIndex = FMath::RandRange(0, CandidateSlots.Num() - 1);
+        OutSlotID = CandidateSlots[RandomIndex];
+    }
+
+    return ExtractSpecificSlot(OutSlotID, OutTransform);
+}
+
+bool USCStackComponent::ExtractSpecificSlot(int32 SlotID, FTransform& OutTransform)
+{
+    if (!SlotStatuses.IsValidIndex(SlotID) || SlotStatuses[SlotID] != ESCSlotStatus::Filled)
+    {
+        return false;
+    }
+
+    // Get true world transform for spawning the actor
+    if (IsValid(StackHISM))
+    {
+        StackHISM->GetInstanceTransform(SlotID, OutTransform, true);
+    }
+    else
+    {
+        OutTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID)) * GetComponentTransform();
+    }
+
+    // Mark as free and hide the mesh
+    SlotStatuses[SlotID] = ESCSlotStatus::Free;
+
+    if (IsValid(StackHISM))
+    {
+        FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
+        HiddenTransform.SetScale3D(FVector(0.0001f));
+        StackHISM->UpdateInstanceTransform(SlotID, HiddenTransform, false, false, false);
+        StackHISM->MarkRenderStateDirty();
+    }
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Public API — Getters
 // ---------------------------------------------------------------------------

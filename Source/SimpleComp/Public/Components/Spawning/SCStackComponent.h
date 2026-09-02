@@ -60,6 +60,22 @@ enum class ESCStackCurveMode : uint8
  * Tracks slot reservation status, drives scale-in animations via FTimerManager,
  * and supports a destruction burst (Explode).
  */
+UENUM(BlueprintType)
+enum class ESCStackExtractionOrder : uint8
+{
+    /** Takes the absolute last filled slot (Reverse sequential). */
+    FromLastAdded,
+
+    /** Finds the highest layer that has items, and picks the FIRST filled slot on that layer. (Empties the layer in the same direction it was filled). */
+    FromFirstOnTopLayer,
+
+    /** Finds the highest layer that has items, and picks a random filled slot from it. */
+    RandomOnTopLayer,
+
+    /** Picks a completely random filled slot from the entire stack. */
+    RandomFromAll
+};
+
 UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayName = "Simple Stack Component"))
 class SIMPLECOMP_API USCStackComponent : public USceneComponent
 {
@@ -139,6 +155,28 @@ public:
      */
     UFUNCTION(BlueprintImplementableEvent, Category = "SimpleComp|Stack")
     void OnSlotFilled(int32 SlotID);
+
+    /**
+     * Finds a filled slot based on the chosen strategy, marks it as Free, hides it in the stack,
+     * and returns its precise world transform so you can spawn a flying resource there.
+     * 
+     * @param Order Strategy for picking which slot to extract.
+     * @param OutSlotID The ID of the slot that was freed.
+     * @param OutTransform The world transform of the slot before it was hidden.
+     * @return True if a slot was found and extracted. False if the stack was completely empty.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
+    bool ExtractSlot(ESCStackExtractionOrder Order, int32& OutSlotID, FTransform& OutTransform);
+
+    /**
+     * Extracts a specific slot (if it is filled), marks it as Free, and hides it.
+     * 
+     * @param SlotID The ID of the slot to extract.
+     * @param OutTransform The world transform of the slot before it was hidden.
+     * @return True if the slot was filled and successfully extracted. False otherwise.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
+    bool ExtractSpecificSlot(int32 SlotID, FTransform& OutTransform);
 
     // -----------------------------------------------------------------------
     // Configuration — Preview
