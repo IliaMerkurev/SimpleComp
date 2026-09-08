@@ -698,18 +698,20 @@ void USCStackComponent::ConfirmArrival(int32 TicketID)
     OnSlotFilled(ActualSlotID);
 }
 
-void USCStackComponent::ReleaseSlot(int32 SlotID)
+void USCStackComponent::ReleaseSlot(int32 TicketID)
 {
-    if (!SlotStatuses.IsValidIndex(SlotID))
+    int32 ActualSlotID = FindIndexByTicket(TicketID);
+    if (ActualSlotID == INDEX_NONE)
     {
-        UE_LOG(LogSCStack, Warning, TEXT("USCStackComponent on '%s': ReleaseSlot called with invalid SlotID %d."),
-            *GetOwner()->GetName(), SlotID);
+        UE_LOG(LogSCStack, Warning, TEXT("USCStackComponent on '%s': ReleaseSlot called with invalid TicketID %d."),
+            *GetOwner()->GetName(), TicketID);
         return;
     }
 
-    if (SlotStatuses[SlotID].Status == ESCSlotStatus::Reserved)
+    if (SlotStatuses[ActualSlotID].Status == ESCSlotStatus::Reserved)
     {
-        SlotStatuses[SlotID].Status = ESCSlotStatus::Free;
+        SlotStatuses[ActualSlotID].Status = ESCSlotStatus::Free;
+        SlotStatuses[ActualSlotID].TicketID = INDEX_NONE;
     }
 }
 
@@ -915,19 +917,25 @@ bool USCStackComponent::ExtractSpecificSlot(int32 TicketID, FTransform& OutTrans
 // Public API — Getters
 // ---------------------------------------------------------------------------
 
-FTransform USCStackComponent::GetSlotWorldTransform(int32 SlotID) const
+FTransform USCStackComponent::GetSlotWorldTransform(int32 TicketID) const
 {
-    if (IsValid(StackHISM) && StackHISM->GetInstanceCount() > 0 && SlotStatuses.IsValidIndex(SlotID))
+    int32 ActualSlotID = FindIndexByTicket(TicketID);
+    if (ActualSlotID == INDEX_NONE)
+    {
+        return GetComponentTransform();
+    }
+
+    if (IsValid(StackHISM) && StackHISM->GetInstanceCount() > 0 && SlotStatuses.IsValidIndex(ActualSlotID))
     {
         FTransform WorldTransform;
-        StackHISM->GetInstanceTransform(SlotID, WorldTransform, true);
+        StackHISM->GetInstanceTransform(ActualSlotID, WorldTransform, true);
         return WorldTransform;
     }
 
     AActor* Owner = GetOwner();
-    if (IsValid(Owner) && SlotID >= 0)
+    if (IsValid(Owner) && ActualSlotID >= 0)
     {
-        return Owner->GetActorTransform() * CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
+        return Owner->GetActorTransform() * CalculateDeformedTransform(CalculateSlotGridTransform(ActualSlotID));
     }
 
     return FTransform::Identity;
