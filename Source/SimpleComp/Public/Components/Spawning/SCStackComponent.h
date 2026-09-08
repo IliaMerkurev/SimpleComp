@@ -24,6 +24,18 @@ enum class ESCSlotStatus : uint8
     Filled   UMETA(DisplayName = "Filled")
 };
 
+USTRUCT(BlueprintType)
+struct FSCSlotData
+{
+    GENERATED_BODY()
+
+    UPROPERTY()
+    ESCSlotStatus Status = ESCSlotStatus::Free;
+
+    UPROPERTY()
+    int32 TicketID = INDEX_NONE;
+};
+
 // ---------------------------------------------------------------------------
 // Internal animation state (non-reflected, implementation detail)
 // ---------------------------------------------------------------------------
@@ -100,19 +112,19 @@ public:
      * Marks the slot as Filled, makes the HISM instance visible,
      * and starts the scale-in animation.
      *
-     * @param SlotID  The ID previously returned by RequestSlot().
+     * @param TicketID  The ID previously returned by RequestSlot().
      */
     UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
-    void ConfirmArrival(int32 SlotID);
+    void ConfirmArrival(int32 TicketID);
 
     /**
      * Releases a Reserved slot back to Free.
      * Call this on the resource Actor's destruction during flight to prevent slot leaks.
      *
-     * @param SlotID  The ID to release.
+     * @param TicketID  The ID to release.
      */
     UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
-    void ReleaseSlot(int32 SlotID);
+    void ReleaseSlot(int32 TicketID);
 
     /**
      * Destroys the stack: spawns ExplosionActorClass at the world transform of every
@@ -125,10 +137,10 @@ public:
      * Returns the world-space transform of the given slot. Useful for the resource
      * Actor to know its destination before confirming arrival.
      *
-     * @param SlotID  The target slot ID.
+     * @param TicketID  The target slot ID.
      */
     UFUNCTION(BlueprintPure, Category = "SimpleComp|Stack")
-    FTransform GetSlotWorldTransform(int32 SlotID) const;
+    FTransform GetSlotWorldTransform(int32 TicketID) const;
 
     /** Returns the current number of slots in the Filled state. */
     UFUNCTION(BlueprintPure, Category = "SimpleComp|Stack")
@@ -151,32 +163,32 @@ public:
      * Fired when a slot animation completes and an element is fully placed in the stack.
      * Override in Blueprint to trigger VFX, SFX, or game logic.
      *
-     * @param SlotID  The slot that finished animating.
+     * @param TicketID  The slot that finished animating.
      */
     UFUNCTION(BlueprintImplementableEvent, Category = "SimpleComp|Stack")
-    void OnSlotFilled(int32 SlotID);
+    void OnSlotFilled(int32 TicketID);
 
     /**
      * Finds a filled slot based on the chosen strategy, marks it as Free, hides it in the stack,
      * and returns its precise world transform so you can spawn a flying resource there.
      * 
      * @param Order Strategy for picking which slot to extract.
-     * @param OutSlotID The ID of the slot that was freed.
+     * @param OutTicketID The ID of the slot that was freed.
      * @param OutTransform The world transform of the slot before it was hidden.
      * @return True if a slot was found and extracted. False if the stack was completely empty.
      */
     UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
-    bool ExtractSlot(ESCStackExtractionOrder Order, int32& OutSlotID, FTransform& OutTransform);
+    bool ExtractSlot(ESCStackExtractionOrder Order, int32& OutTicketID, FTransform& OutTransform);
 
     /**
      * Extracts a specific slot (if it is filled), marks it as Free, and hides it.
      * 
-     * @param SlotID The ID of the slot to extract.
+     * @param TicketID The ID of the slot to extract.
      * @param OutTransform The world transform of the slot before it was hidden.
      * @return True if the slot was filled and successfully extracted. False otherwise.
      */
     UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
-    bool ExtractSpecificSlot(int32 SlotID, FTransform& OutTransform);
+    bool ExtractSpecificSlot(int32 TicketID, FTransform& OutTransform);
 
     // -----------------------------------------------------------------------
     // Configuration — Preview
@@ -406,22 +418,22 @@ private:
     void RefreshStackTransforms();
     void BuildCachedCurve();
 
-    void StartSlotAnimation(int32 SlotID);
-    void TickSlotAnimation(int32 SlotID);
+    int32 FindIndexByTicket(int32 TicketID) const;
+
+    void StartSlotAnimation(int32 SlotIndex);
+    void TickSlotAnimation(int32 SlotIndex);
     void ClearAllAnimations();
 
-    /** Activates the next slot in the pending fill queue with stagger delay. */
     void ProcessNextPendingSlot();
-
-    /** Cancels any in-progress SetFillLevel animation and releases reserved-but-unplayed slots. */
     void CancelPendingFill();
 
-    TArray<ESCSlotStatus> SlotStatuses;
+    TArray<FSCSlotData> SlotStatuses;
     TMap<int32, FSCSlotAnimState> ActiveAnimations;
 
-    TQueue<int32> PendingFillSlots;
+    TQueue<int32> PendingFillTickets;
     FTimerHandle FillStaggerTimerHandle;
 
+    int32 NextTicketID = 0;
     float LastAppliedFillLevel = 0.0f;
 
     // Physics & Curve Simulation State
