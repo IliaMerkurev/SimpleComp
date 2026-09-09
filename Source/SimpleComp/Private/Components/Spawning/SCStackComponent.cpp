@@ -1,6 +1,7 @@
 #include "Components/Spawning/SCStackComponent.h"
 
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Core/Interfaces/SCMessageInterface.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -170,6 +171,7 @@ void USCStackComponent::BeginPlay()
 
 void USCStackComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    CancelSpawning();
     CancelPendingFill();
     ClearAllAnimations();
     Super::EndPlay(EndPlayReason);
@@ -730,10 +732,80 @@ void USCStackComponent::ReleaseSlot(int32 TicketID)
 }
 
 // ---------------------------------------------------------------------------
-// Public API — Explosion
+// Public API — Actor Spawning
 // ---------------------------------------------------------------------------
 
+void USCStackComponent::SpawnActors()
+{
+    SpawnActorsWithSettings(DefaultSpawnSettings);
+}
+
 void USCStackComponent::Explode()
+{
+    SpawnActors();
+}
+
+void USCStackComponent::CancelSpawning()
+{
+    UWorld* World = GetWorld();
+    if (IsValid(World))
+    {
+        World->GetTimerManager().ClearTimer(SpawnWaveTimerHandle);
+    }
+
+    PendingSpawnWaves.Empty();
+}
+
+int32 USCStackComponent::CalculateSlotWaveIndex(int32 SlotID, const FSCStackSpawnSettings& Settings) const
+{
+    const int32 SafeRows = FMath::Max(1, Rows);
+    const int32 SafeColumns = FMath::Max(1, Columns);
+    const int32 SafeLayers = FMath::Max(1, Layers);
+
+    const int32 Layer = SlotID / (SafeRows * SafeColumns);
+    const int32 Row   = (SlotID % (SafeRows * SafeColumns)) / SafeColumns;
+    const int32 Col   = SlotID % SafeColumns;
+
+    int32 VerticalDist = 0;
+    if (Settings.bFromTop && Settings.bFromBottom)
+    {
+        VerticalDist = FMath::Min(Layer, (SafeLayers - 1) - Layer);
+    }
+    else if (Settings.bFromTop)
+    {
+        VerticalDist = (SafeLayers - 1) - Layer;
+    }
+    else if (Settings.bFromBottom)
+    {
+        VerticalDist = Layer;
+    }
+
+    int32 HorizontalDist = 0;
+    const int32 DistToEdgeCol = FMath::Min(Col, (SafeColumns - 1) - Col);
+    const int32 DistToEdgeRow = FMath::Min(Row, (SafeRows - 1) - Row);
+    const int32 DistToEdge = FMath::Min(DistToEdgeCol, DistToEdgeRow);
+
+    const float CenterCol = (SafeColumns - 1) * 0.5f;
+    const float CenterRow = (SafeRows - 1) * 0.5f;
+    const int32 DistToCenter = FMath::RoundToInt(FMath::Max(FMath::Abs(Col - CenterCol), FMath::Abs(Row - CenterRow)));
+
+    if (Settings.bFromEdges && Settings.bFromCenter)
+    {
+        HorizontalDist = FMath::Min(DistToEdge, DistToCenter);
+    }
+    else if (Settings.bFromEdges)
+    {
+        HorizontalDist = DistToEdge;
+    }
+    else if (Settings.bFromCenter)
+    {
+        HorizontalDist = DistToCenter;
+    }
+
+    return VerticalDist + HorizontalDist;
+}
+
+void USCStackComponent::SpawnActorsWithSettings(const FSCStackSpawnSettings& Settings)
 {
     UWorld* World = GetWorld();
     if (!IsValid(World))
@@ -741,35 +813,132 @@ void USCStackComponent::Explode()
         return;
     }
 
+    CancelSpawning();
     ClearAllAnimations();
 
-    if (IsValid(ExplosionActorClass))
+    ActiveSpawnSettings = Settings;
+
+    TMap<int32, TArray<int32>> WaveBuckets;
+    for (int32 i = 0; i < SlotStatuses.Num(); ++i)
     {
-        FActorSpawnParameters SpawnParams;
-        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-        for (int32 i = 0; i < SlotStatuses.Num(); ++i)
+        if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
         {
-            if (SlotStatuses[i].Status != ESCSlotStatus::Filled)
-            {
-                continue;
-            }
-
-            FTransform InstanceWorldTransform;
-            StackHISM->GetInstanceTransform(i, InstanceWorldTransform, true);
-            World->SpawnActor<AActor>(ExplosionActorClass, InstanceWorldTransform, SpawnParams);
+            const int32 WaveIdx = CalculateSlotWaveIndex(i, Settings);
+            WaveBuckets.FindOrAdd(WaveIdx).Add(i);
         }
     }
 
-    for (int32 i = 0; i < SlotStatuses.Num(); ++i)
+    if (WaveBuckets.IsEmpty())
     {
-        FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-        HiddenTransform.SetScale3D(FVector(0.0001f));
-        StackHISM->UpdateInstanceTransform(i, HiddenTransform, false, false);
-        SlotStatuses[i].Status = ESCSlotStatus::Free;
+        return;
     }
 
-    StackHISM->MarkRenderStateDirty();
+    TArray<int32> SortedWaveIndices;
+    WaveBuckets.GetKeys(SortedWaveIndices);
+    SortedWaveIndices.Sort();
+
+    PendingSpawnWaves.Empty(SortedWaveIndices.Num());
+    for (int32 WaveIdx : SortedWaveIndices)
+    {
+        PendingSpawnWaves.Add(MoveTemp(WaveBuckets[WaveIdx]));
+    }
+
+    if (Settings.SpawnInterval <= 0.0f)
+    {
+        while (!PendingSpawnWaves.IsEmpty())
+        {
+            ProcessNextSpawnWave();
+        }
+    }
+    else
+    {
+        ProcessNextSpawnWave();
+
+        if (!PendingSpawnWaves.IsEmpty())
+        {
+            World->GetTimerManager().SetTimer(
+                SpawnWaveTimerHandle,
+                this,
+                &USCStackComponent::ProcessNextSpawnWave,
+                Settings.SpawnInterval,
+                true);
+        }
+    }
+}
+
+void USCStackComponent::ProcessNextSpawnWave()
+{
+    UWorld* World = GetWorld();
+    if (!IsValid(World) || PendingSpawnWaves.IsEmpty())
+    {
+        CancelSpawning();
+        return;
+    }
+
+    TArray<int32> CurrentWave = MoveTemp(PendingSpawnWaves[0]);
+    PendingSpawnWaves.RemoveAt(0);
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    for (int32 SlotID : CurrentWave)
+    {
+        if (!SlotStatuses.IsValidIndex(SlotID) || SlotStatuses[SlotID].Status != ESCSlotStatus::Filled)
+        {
+            continue;
+        }
+
+        FTransform InstanceWorldTransform;
+        if (IsValid(StackHISM))
+        {
+            StackHISM->GetInstanceTransform(SlotID, InstanceWorldTransform, true);
+        }
+        else
+        {
+            InstanceWorldTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID)) * GetComponentTransform();
+        }
+
+        if (IsValid(SpawnActorClass))
+        {
+            AActor* NewActor = World->SpawnActor<AActor>(SpawnActorClass, InstanceWorldTransform, SpawnParams);
+            if (IsValid(NewActor))
+            {
+                if (NewActor->Implements<USCMessageInterface>())
+                {
+                    FSCMessagePayload Payload;
+                    Payload.Value = ActiveSpawnSettings.MessageValue;
+                    Payload.StringMessage = ActiveSpawnSettings.MessageNote;
+                    Payload.Sender = GetOwner();
+                    Payload.TransformData = InstanceWorldTransform;
+
+                    ISCMessageInterface::Execute_OnReceiveSCMessage(NewActor, Payload);
+                }
+
+                OnActorSpawned(NewActor, SlotID);
+            }
+        }
+
+        if (IsValid(StackHISM))
+        {
+            FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
+            HiddenTransform.SetScale3D(FVector(0.0001f));
+            StackHISM->UpdateInstanceTransform(SlotID, HiddenTransform, false, false);
+        }
+
+        SlotStatuses[SlotID].Status = ESCSlotStatus::Free;
+        SlotStatuses[SlotID].TicketID = INDEX_NONE;
+    }
+
+    if (IsValid(StackHISM))
+    {
+        StackHISM->MarkRenderStateDirty();
+    }
+
+    if (PendingSpawnWaves.IsEmpty())
+    {
+        CancelSpawning();
+        OnSpawningCompleted();
+    }
 }
 
 bool USCStackComponent::ExtractSlot(ESCStackExtractionOrder Order, int32& OutTicketID, FTransform& OutTransform)

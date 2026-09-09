@@ -88,6 +88,45 @@ enum class ESCStackExtractionOrder : uint8
     RandomFromAll
 };
 
+// ---------------------------------------------------------------------------
+// Spawn Settings Struct
+// ---------------------------------------------------------------------------
+
+/** Configuration controlling how filled slots in the stack are converted and spawned as actors. */
+USTRUCT(BlueprintType)
+struct SIMPLECOMP_API FSCStackSpawnSettings
+{
+    GENERATED_BODY()
+
+    /** Delay between spawn waves (in seconds). If <= 0, all slots spawn immediately in a single frame. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    float SpawnInterval = 0.05f;
+
+    /** When true, wave priority starts from the top layer downwards. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    bool bFromTop = false;
+
+    /** When true, wave priority starts from the bottom layer upwards. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    bool bFromBottom = false;
+
+    /** When true, wave priority starts from the outer perimeter (edges) inwards to the center. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    bool bFromEdges = false;
+
+    /** When true, wave priority starts from the center outwards to the perimeter. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    bool bFromCenter = false;
+
+    /** Optional numerical value passed in FSCMessagePayload to each spawned actor. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    float MessageValue = 0.0f;
+
+    /** Optional string note passed in FSCMessagePayload to each spawned actor. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    FString MessageNote = TEXT("");
+};
+
 UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayName = "Simple Stack Component"))
 class SIMPLECOMP_API USCStackComponent : public USceneComponent
 {
@@ -127,10 +166,30 @@ public:
     void ReleaseSlot(int32 TicketID);
 
     /**
-     * Destroys the stack: spawns ExplosionActorClass at the world transform of every
-     * Filled instance, hides all instances, and resets all slot statuses to Free.
+     * Converts all filled stack slots into spawned actors using default component settings.
      */
     UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
+    void SpawnActors();
+
+    /**
+     * Converts all filled stack slots into spawned actors using custom directional and interval settings.
+     *
+     * @param Settings Configuration controlling wave directions, stagger interval, and message data.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
+    void SpawnActorsWithSettings(const FSCStackSpawnSettings& Settings);
+
+    /**
+     * Cancels any active staggered actor spawning cycle.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
+    void CancelSpawning();
+
+    /**
+     * Legacy function. Use SpawnActors instead.
+     * Spawns SpawnActorClass at each Filled slot's position.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack", meta = (DeprecatedFunction, DeprecationMessage = "Use SpawnActors instead."))
     void Explode();
 
     /**
@@ -167,6 +226,21 @@ public:
      */
     UFUNCTION(BlueprintImplementableEvent, Category = "SimpleComp|Stack")
     void OnSlotFilled(int32 TicketID);
+
+    /**
+     * Fired when an actor is spawned from a stack slot.
+     *
+     * @param SpawnedActor The newly spawned actor.
+     * @param SlotID The index of the slot from which the actor was spawned.
+     */
+    UFUNCTION(BlueprintImplementableEvent, Category = "SimpleComp|Stack")
+    void OnActorSpawned(AActor* SpawnedActor, int32 SlotID);
+
+    /**
+     * Fired when all active waves of actor spawning have completed and the stack has finished emptying.
+     */
+    UFUNCTION(BlueprintImplementableEvent, Category = "SimpleComp|Stack")
+    void OnSpawningCompleted();
 
     /**
      * Finds a filled slot based on the chosen strategy, marks it as Free, hides it in the stack,
@@ -333,12 +407,16 @@ public:
     FVector RandomScaleMax = FVector(1.2f);
 
     // -----------------------------------------------------------------------
-    // Configuration — Explosion
+    // Configuration — Actor Spawning
     // -----------------------------------------------------------------------
 
-    /** Actor class spawned at each Filled instance's world position during Explode(). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Explosion")
-    TSubclassOf<AActor> ExplosionActorClass;
+    /** Actor class spawned at each Filled instance's world position. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    TSubclassOf<AActor> SpawnActorClass;
+
+    /** Default settings used when calling SpawnActors() without arguments. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Spawning")
+    FSCStackSpawnSettings DefaultSpawnSettings;
 
     // -----------------------------------------------------------------------
     // Configuration — Animation
@@ -426,6 +504,13 @@ private:
 
     void ProcessNextPendingSlot();
     void CancelPendingFill();
+
+    int32 CalculateSlotWaveIndex(int32 SlotID, const FSCStackSpawnSettings& Settings) const;
+    void ProcessNextSpawnWave();
+
+    TArray<TArray<int32>> PendingSpawnWaves;
+    FTimerHandle SpawnWaveTimerHandle;
+    FSCStackSpawnSettings ActiveSpawnSettings;
 
     TArray<FSCSlotData> SlotStatuses;
     TMap<int32, FSCSlotAnimState> ActiveAnimations;
