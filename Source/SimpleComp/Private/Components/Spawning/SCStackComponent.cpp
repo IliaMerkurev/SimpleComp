@@ -144,9 +144,14 @@ void USCStackComponent::BeginPlay()
         StackHISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     }
 
+    if (CurveMode == ESCStackCurveMode::ManualCurve)
+    {
+        BuildCachedCurve();
+    }
+
     InitializeRuntimeState();
 
-    if (bEnableFillAnimation || CurveMode == ESCStackCurveMode::Inertia)
+    if (bEnableFillAnimation || CurveMode == ESCStackCurveMode::Inertia || CurveMode == ESCStackCurveMode::ManualCurve)
     {
         PrimaryComponentTick.bCanEverTick = true;
         SetComponentTickEnabled(true);
@@ -302,6 +307,11 @@ void USCStackComponent::UpdateEditorPreview()
         return;
     }
 
+    if (CurveMode == ESCStackCurveMode::ManualCurve)
+    {
+        BuildCachedCurve();
+    }
+
     StackHISM->SetStaticMesh(ElementMesh);
 
     const int32 SafeRows    = FMath::Max(1, Rows);
@@ -421,6 +431,7 @@ void USCStackComponent::BuildCachedCurve()
         FQuat Rot;
     };
     TArray<FPointData> Points;
+    Points.Reserve(ControlPointComponents.Num());
 
     for (const FComponentReference& Ref : ControlPointComponents)
     {
@@ -572,7 +583,10 @@ FTransform USCStackComponent::CalculateDeformedTransform(const FTransform& GridT
 void USCStackComponent::UpdateInertiaSimulation(float DeltaTime)
 {
     AActor* Owner = GetOwner();
-    if (!IsValid(Owner) || DeltaTime <= 0.0f) return;
+    if (!IsValid(Owner) || DeltaTime <= 0.0f)
+    {
+        return;
+    }
 
     FVector CurrentOwnerLocation = Owner->GetActorLocation();
     FVector CurrentVelocity = (CurrentOwnerLocation - PreviousOwnerLocation) / DeltaTime;
