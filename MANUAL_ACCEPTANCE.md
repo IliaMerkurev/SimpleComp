@@ -1,8 +1,8 @@
 # 0.11 manual acceptance
 
-**Status: Not run — explicitly deferred by owner.** These are instructions for later owner validation, not executed checks. No validation map, test harness, or infrastructure was added.
+**Agent-run validation: Not run — explicitly deferred by owner.** The owner reports basic functional checks passed. Individual rows below have not been recorded as passed; production validation remains pending. No validation map, test harness, or infrastructure was added.
 
-Use the existing SCDev project with its existing SimpleComp plugin checkout on `codex/0.11`. The owner should first compile the plugin/project and open existing Blueprint assets in the installed UE 5.6 environment. Record compiler errors, asset reconstruction warnings, actual results, and scene-specific differences in the relevant Linear issue. Preparing this branch does not accept version 0.11.
+Use the existing SCDev project with its existing SimpleComp plugin checkout on `codex/0.11`. The owner should first compile the plugin/project and open existing Blueprint assets in the installed UE 5.6 environment. Record compiler errors, asset reconstruction warnings, actual results, and scene-specific differences in the relevant Linear issue. The owner has authorized integration of 0.11 after basic checks; integration does not establish all acceptance results.
 
 ## Manual scene checks
 
@@ -40,4 +40,4 @@ These need controlled instrumentation or fixtures beyond ordinary scene interact
 - Inspect HISM culling, tree rebuilding, collision, and near-zero hidden instance behavior with all instances hidden, extreme parent transforms, and large layouts. The existing BoundsScale workaround remains.
 - Profile representative cinematic scenes before considering more invasive HISM batching, lookup caching, timer changes, or bounds changes. No performance improvement has been measured.
 
-Do not merge, tag, release, or mark runtime issues Done until the owner accepts the relevant results.
+Merge is authorized by the owner. Tags and releases require separate authorization; mark runtime issues Done only when the relevant validation results are accepted.

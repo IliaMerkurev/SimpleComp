@@ -3,7 +3,7 @@
 	"Version": 2,
 	"VersionName": "0.11",
 	"FriendlyName": "SimpleComp",
-	"Description": "Reusable autonomous components for cinematics, motion design, self-playing scenes, gameplay, and rapid prototyping. Pending 0.11 implementation; owner validation required.",
+	"Description": "Reusable autonomous components for cinematics, motion design, self-playing scenes, gameplay, and rapid prototyping.",
 	"Category": "Other",
 	"CreatedBy": "Ilia Merkurev",
 	"CreatedByURL": "",

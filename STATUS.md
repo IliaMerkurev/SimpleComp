@@ -1,8 +1,8 @@
 # SimpleComp 0.11 implementation status
 
-Accepted version: **0.1**. Pending implementation: **0.11**, branch `codex/0.11`, based on `master` at `19c66128d45a8f08a34177055b0b3bd10b936b1d`.
+Version **0.11** follows **0.1**. The owner reports basic functional checks passed and authorizes integration into master; production validation remains pending. Implementation branch `codex/0.11`, based on `master` at `19c66128d45a8f08a34177055b0b3bd10b936b1d`.
 
-**Compilation and tests: Not run — explicitly deferred by owner.** No Unreal execution, UHT/UBT, automation, benchmark, or test harness was used. Evidence is source inspection, installed-engine header inspection, algorithm reasoning, and Git diff review only. All behavior changes require owner validation using [MANUAL_ACCEPTANCE.md](MANUAL_ACCEPTANCE.md).
+**Agent-run compilation and tests: Not run — explicitly deferred by owner.** No Unreal execution, UHT/UBT, automation, benchmark, or test harness was used. Evidence is source inspection, installed-engine header inspection, algorithm reasoning, and Git diff review only. Individual acceptance results have not been recorded; continue detailed owner validation using [MANUAL_ACCEPTANCE.md](MANUAL_ACCEPTANCE.md).
 
 ## Review coverage and disposition
 
@@ -15,7 +15,7 @@ All **32 files** under Source were read: Animation (6), Movement (8), Spawning (
 | Async/K2 | Registered unused control proxies; accumulated subscriptions; unwanted activation rewind; incomplete teardown; Real pins without Float/Double subtype; duplicate/colliding notify pins; shared time outputs; sequence Details edits |
 | Movement | Sphere world-axis/relative-quaternion mismatch; invalid rolling radius; Wheel initial orientation and stationary steering; FollowConstraint ignored location limits and zero-smoothness mismatch; Rotation static-target fallback and stale displacement |
 | Collector/Spawner | Raw shape/flow edits not updating dependent state; initial overlap handling; same-collector duplicate reservations; destroyed flight cleanup; flow timer overlap; callback destruction/cancellation during spawn and message dispatch; invalid timing/weight handling |
-| Modules/guidance | Unused runtime Slate dependencies; public BlueprintGraph dependency; Interp placement; ensure semantics; ownership/loading choices; Tick capability versus activation; hard-reference blanket prohibition; blanket logic-comment ban; invalid skill names and ignored project rules |
+| Modules/guidance | Unused runtime Slate dependencies; public BlueprintGraph dependency; Interp placement; ensure semantics; ownership/loading choices; Tick capability versus activation; hard-reference blanket prohibition; blanket logic-comment ban; correct skill discovery and separation of generic guidance from project rules |
 
 The earlier suggestion to narrow user settings was **not adopted**: it conflicts with the cinematic authoring workflow. Hard references, broad editability, and explicit Stack/Collector cooperation are not defects. Default subobject registration was not treated as universally broken; Unreal can register actor-owned nested components through its lifecycle. Native lifecycle validation remains necessary.
 
@@ -39,10 +39,12 @@ BoundsScale = 10000 remains as the existing all-hidden HISM workaround until cul
 
 Vector-curve tracks and CustomFloat output were advertised more broadly than implemented. Their public types remain compatible and tooltips now describe the limitation; adding those features is outside this iteration. Full arbitrary-time scene reconstruction and cross-collector global resource arbitration are also outside scope.
 
-No product decision blocks the conservative implementation. Owner review is still needed for non-destructive resize/failure behavior, seek/event boundaries, FollowConstraint offset semantics, randomization/arrival visuals, and flow-edit restart behavior. Alternative destructive rebuild, notify-on-seek, or retry policy requires a separate explicit decision.
+No product decision blocks the conservative implementation. Detailed owner review is still needed for non-destructive resize/failure behavior, seek/event boundaries, FollowConstraint offset semantics, randomization/arrival visuals, and flow-edit restart behavior. Alternative destructive rebuild, notify-on-seek, or retry policy requires a separate explicit decision.
 
 ## Tracking and handoff
 
 Project: [SimpleComp](https://linear.app/ilia-merkurev/project/simplecomp-0dc908d97ca4), milestone **0.11**. Implementation areas: [ILI-46](https://linear.app/ilia-merkurev/issue/ILI-46), [ILI-47](https://linear.app/ilia-merkurev/issue/ILI-47), [ILI-48](https://linear.app/ilia-merkurev/issue/ILI-48), [ILI-49](https://linear.app/ilia-merkurev/issue/ILI-49), [ILI-50](https://linear.app/ilia-merkurev/issue/ILI-50), [ILI-51](https://linear.app/ilia-merkurev/issue/ILI-51). Linear remains the task tracker; implemented issues await review/native validation, not Done.
 
-The original checkout was clean at preparation and had no local-only commits. Existing ignored build artifacts remain untouched. The work stays in the existing plugin directory on `codex/0.11`; no additional working copy was created. Delivery details and any available remote CI results are recorded in the Draft PR and final handoff. No release, tag, merge, or branch-protection change is part of this work.
+The original checkout was clean at preparation and had no local-only commits. Existing ignored build artifacts remain untouched. The work stays in the existing plugin directory on `codex/0.11`; no additional working copy was created. Delivery details and any available remote CI results are recorded in [PR #1](https://github.com/IliaMerkurev/SimpleComp/pull/1) and the final handoff. The owner has authorized merging after basic checks. No release, tag, or branch-protection change is authorized.
+
+The current skills remain locally in `.agents/skills`, excluded from Git. Legacy `.agent` pointers are removed. A squash merge keeps skill-containing development commits out of master's new history; the development branch retains its existing history. Stable product and architecture rules remain version-controlled.

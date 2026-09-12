@@ -6,16 +6,9 @@ Intermediate/
 Saved/
 DerivedDataCache/
 Build/           # UE sometimes creates extra build folders
-# Keep only the two legacy skill entrypoints; unrelated local agent files stay ignored.
-.agent/*
-!.agent/skills/
-.agent/skills/*
-!.agent/skills/simplecomp-rules/
-!.agent/skills/unreal-cpp-developer/
-.agent/skills/simplecomp-rules/*
-.agent/skills/unreal-cpp-developer/*
-!.agent/skills/simplecomp-rules/SKILL.md
-!.agent/skills/unreal-cpp-developer/SKILL.md
+# Local coding skills are development tooling, not distributed plugin content.
+.agents/
+.agent/
 
 # IDE / Editor Files
 .vs/
