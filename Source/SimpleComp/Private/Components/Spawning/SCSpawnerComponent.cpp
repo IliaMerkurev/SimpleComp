@@ -13,24 +13,59 @@ USCSpawnerComponent::USCSpawnerComponent()
 
 void USCSpawnerComponent::Spawn()
 {
+    if (bShuttingDown)
+    {
+        return;
+    }
+    StopSpawn();
     bIsManuallyStopped = false;
+    bAppliedFlow = bIsFlow;
+    AppliedFlowInterval = FMath::IsFinite(FlowInterval) ? FMath::Max(0.f, FlowInterval) : 0.f;
+    AppliedFlowDuration = FMath::IsFinite(FlowTimer) ? FMath::Max(0.f, FlowTimer) : 0.f;
+    AppliedRepeatInterval = FMath::IsFinite(AutoRepeatInterval) ? FMath::Max(0.f, AutoRepeatInterval) : 0.f;
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().SetTimer(SettingsTimerHandle, this, &USCSpawnerComponent::RefreshFlowSettings, 0.1f,
+                                          true);
+    }
     StartActivePhase();
+}
+
+void USCSpawnerComponent::RefreshFlowSettings()
+{
+    if (bIsManuallyStopped || bShuttingDown)
+    {
+        return;
+    }
+    const float Interval = FMath::IsFinite(FlowInterval) ? FMath::Max(0.f, FlowInterval) : 0.f;
+    const float Duration = FMath::IsFinite(FlowTimer) ? FMath::Max(0.f, FlowTimer) : 0.f;
+    const float Repeat = FMath::IsFinite(AutoRepeatInterval) ? FMath::Max(0.f, AutoRepeatInterval) : 0.f;
+    if (bAppliedFlow != bIsFlow || AppliedFlowInterval != Interval || AppliedFlowDuration != Duration ||
+        AppliedRepeatInterval != Repeat)
+    {
+        Spawn();
+    }
 }
 
 void USCSpawnerComponent::StartActivePhase()
 {
     UWorld* World = GetWorld();
-    if (!World || bIsManuallyStopped)
+    if (!World || bIsManuallyStopped || bShuttingDown)
+    {
         return;
+    }
 
     World->GetTimerManager().ClearTimer(RepeatDelayHandle);
+    World->GetTimerManager().ClearTimer(FlowTimerHandle);
+    World->GetTimerManager().ClearTimer(FlowDurationHandle);
+    const uint64 Revision = SpawnRevision;
 
-    if (bIsFlow)
+    if (bIsFlow && FMath::IsFinite(FlowInterval) && FlowInterval > 0.f)
     {
         World->GetTimerManager().SetTimer(FlowTimerHandle, this, &USCSpawnerComponent::ExecuteSpawning, FlowInterval,
             true, 0.0f);
 
-        if (FlowTimer > 0.0f)
+        if (FMath::IsFinite(FlowTimer) && FlowTimer > 0.0f)
         {
             World->GetTimerManager().SetTimer(FlowDurationHandle, this, &USCSpawnerComponent::OnFlowDurationExpired,
                 FlowTimer, false);
@@ -40,10 +75,15 @@ void USCSpawnerComponent::StartActivePhase()
     {
         ExecuteSpawning();
 
-        if (AutoRepeatInterval > 0.0f && !bIsManuallyStopped)
+        if (IsValid(this) && !bShuttingDown && Revision == SpawnRevision && FMath::IsFinite(AutoRepeatInterval) &&
+            AutoRepeatInterval > 0.0f && !bIsManuallyStopped)
         {
             World->GetTimerManager().SetTimer(RepeatDelayHandle, this, &USCSpawnerComponent::StartActivePhase,
                 AutoRepeatInterval, false);
+        }
+        else if (Revision == SpawnRevision)
+        {
+            StopSpawn();
         }
     }
 }
@@ -56,37 +96,60 @@ void USCSpawnerComponent::OnFlowDurationExpired()
 
     World->GetTimerManager().ClearTimer(FlowTimerHandle);
 
-    if (AutoRepeatInterval > 0.0f && !bIsManuallyStopped)
+    if (!bShuttingDown && FMath::IsFinite(AutoRepeatInterval) && AutoRepeatInterval > 0.0f && !bIsManuallyStopped)
     {
         World->GetTimerManager().SetTimer(RepeatDelayHandle, this, &USCSpawnerComponent::StartActivePhase,
             AutoRepeatInterval, false);
+    }
+    else
+    {
+        StopSpawn();
     }
 }
 
 void USCSpawnerComponent::StopSpawn()
 {
     bIsManuallyStopped = true;
+    ++SpawnRevision;
 
     if (UWorld* World = GetWorld())
     {
         World->GetTimerManager().ClearTimer(FlowTimerHandle);
         World->GetTimerManager().ClearTimer(FlowDurationHandle);
         World->GetTimerManager().ClearTimer(RepeatDelayHandle);
+        World->GetTimerManager().ClearTimer(SettingsTimerHandle);
     }
+}
+
+void USCSpawnerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    bShuttingDown = true;
+    StopSpawn();
+    Super::EndPlay(EndPlayReason);
+}
+
+void USCSpawnerComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
+{
+    bShuttingDown = true;
+    StopSpawn();
+    Super::OnComponentDestroyed(bDestroyingHierarchy);
 }
 
 void USCSpawnerComponent::ExecuteSpawning()
 {
-    if (!GetWorld())
+    if (!GetWorld() || bIsManuallyStopped || bShuttingDown)
+    {
         return;
+    }
 
-    FVector BaseLocation = GetComponentLocation();
+    const uint64 Revision = SpawnRevision;
+    const int32 BurstCount = FMath::Max(0, Count);
     FTransform CompTransform = GetComponentTransform();
 
     float BaseSpeed = LaunchDirectionWidget.Size() * LaunchMultiplier;
     FVector WorldWidgetDir = CompTransform.TransformVectorNoScale(LaunchDirectionWidget.GetSafeNormal());
 
-    for (int32 i = 0; i < Count; ++i)
+    for (int32 i = 0; i < BurstCount; ++i)
     {
         TSubclassOf<AActor> SelectedClass = GetRandomSpawnClass();
         if (!SelectedClass)
@@ -109,7 +172,8 @@ void USCSpawnerComponent::ExecuteSpawning()
             RandomLoc = CompTransform.TransformPosition(LocalPoint);
         }
 
-        FVector BaseDir = TargetActor ? (TargetActor->GetActorLocation() - RandomLoc).GetSafeNormal() : WorldWidgetDir;
+        FVector BaseDir =
+            IsValid(TargetActor) ? (TargetActor->GetActorLocation() - RandomLoc).GetSafeNormal() : WorldWidgetDir;
         FVector RandomDir = FMath::VRandCone(BaseDir, FMath::DegreesToRadians(LaunchSpreadAngle));
 
         float RandomSpeedMod = FMath::FRandRange(1.0f - VelocityRandomness, 1.0f + VelocityRandomness);
@@ -143,7 +207,11 @@ void USCSpawnerComponent::ExecuteSpawning()
 
         AActor* NewActor = GetWorld()->SpawnActor<AActor>(SelectedClass, RandomLoc, FinalRotation, Params);
 
-        if (NewActor)
+        if (!IsValid(this) || bShuttingDown || bIsManuallyStopped || Revision != SpawnRevision)
+        {
+            return;
+        }
+        if (IsValid(NewActor))
         {
             if (NewActor->Implements<USCMessageInterface>())
             {
@@ -157,6 +225,14 @@ void USCSpawnerComponent::ExecuteSpawning()
                 ISCMessageInterface::Execute_OnReceiveSCMessage(NewActor, Payload);
             }
 
+            if (!IsValid(this) || bShuttingDown || bIsManuallyStopped || Revision != SpawnRevision)
+            {
+                return;
+            }
+            if (!IsValid(NewActor))
+            {
+                continue;
+            }
             UPrimitiveComponent* PhysComp = Cast<UPrimitiveComponent>(NewActor->GetRootComponent());
             if (!PhysComp)
                 PhysComp = NewActor->FindComponentByClass<UPrimitiveComponent>();
@@ -177,10 +253,10 @@ TSubclassOf<AActor> USCSpawnerComponent::GetRandomSpawnClass() const
         return nullptr;
     }
 
-    float TotalWeight = 0.0f;
+    double TotalWeight = 0.0;
     for (const FSCWeightedSpawnClass& WeightedClass : SpawnClass)
     {
-        if (WeightedClass.ActorClass && WeightedClass.Weight > 0.0f)
+        if (IsValid(WeightedClass.ActorClass) && FMath::IsFinite(WeightedClass.Weight) && WeightedClass.Weight > 0.0f)
         {
             TotalWeight += WeightedClass.Weight;
         }
@@ -191,12 +267,12 @@ TSubclassOf<AActor> USCSpawnerComponent::GetRandomSpawnClass() const
         return nullptr;
     }
 
-    float RandomValue = FMath::FRandRange(0.0f, TotalWeight);
-    float CurrentWeight = 0.0f;
+    const double RandomValue = FMath::FRand() * TotalWeight;
+    double CurrentWeight = 0.0;
 
     for (const FSCWeightedSpawnClass& WeightedClass : SpawnClass)
     {
-        if (WeightedClass.ActorClass && WeightedClass.Weight > 0.0f)
+        if (IsValid(WeightedClass.ActorClass) && FMath::IsFinite(WeightedClass.Weight) && WeightedClass.Weight > 0.0f)
         {
             CurrentWeight += WeightedClass.Weight;
             if (RandomValue <= CurrentWeight)

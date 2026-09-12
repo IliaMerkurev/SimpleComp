@@ -10,11 +10,11 @@ public class SimpleCompEditor : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
-			"SimpleComp"
+			"SimpleComp",
+			"BlueprintGraph"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
-			"BlueprintGraph",
 			"UnrealEd",
 			"KismetCompiler",
 			"Slate",

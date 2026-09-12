@@ -1,111 +1,179 @@
 #include "Components/Animation/SCAnimAsyncAction.h"
 #include "Components/Animation/SCCurveAnimComponent.h"
+#include "Components/Animation/SCAnimSequence.h"
 
 USCAnimAsyncAction* USCAnimAsyncAction::CreateProxy(USCCurveAnimComponent* Component, USCAnimSequence* Sequence,
     double Duration, bool bLoop)
 {
-    if (!Component)
+    if (!IsValid(Component))
+    {
         return nullptr;
+    }
     USCAnimAsyncAction* Proxy = NewObject<USCAnimAsyncAction>();
     Proxy->TargetComponent = Component;
     Proxy->TargetSequence = Sequence;
-    Proxy->TargetDuration = static_cast<float>(Duration);
+    Proxy->TargetDuration =
+        FMath::IsFinite(Duration) && Duration > 0.0 && Duration <= MAX_flt ? static_cast<float>(Duration) : -1.0f;
     Proxy->TargetLoop = bLoop;
-    Proxy->RegisterWithGameInstance(Component);
     return Proxy;
 }
 
 void USCAnimAsyncAction::Activate()
 {
-    if (!TargetComponent)
+    // The K2 node issues an explicit command after activation. Activation must not rewind playback.
+}
+
+void USCAnimAsyncAction::BeginDestroy()
+{
+    Cleanup();
+    Super::BeginDestroy();
+}
+
+void USCAnimAsyncAction::BindToPlayback()
+{
+    USCCurveAnimComponent* Component = TargetComponent.Get();
+    if (!IsValid(Component) || !Component->IsPlaying())
     {
         Cleanup();
         return;
     }
-
-    TargetComponent->OnAnimationUpdate.AddDynamic(this, &USCAnimAsyncAction::HandleUpdate);
-    TargetComponent->OnAnimationFinished.AddDynamic(this, &USCAnimAsyncAction::HandleFinished);
-    TargetComponent->OnAnimationNotify.AddDynamic(this, &USCAnimAsyncAction::HandleNotify);
-
-    Play(true);
+    TargetSequence = Component->AnimSequence;
+    RegisterWithGameInstance(Component);
+    Component->OnAnimationUpdate.AddUniqueDynamic(this, &USCAnimAsyncAction::HandleUpdate);
+    Component->OnAnimationFinished.AddUniqueDynamic(this, &USCAnimAsyncAction::HandleFinished);
+    Component->OnAnimationNotify.AddUniqueDynamic(this, &USCAnimAsyncAction::HandleNotify);
+    Component->OnPlaybackInvalidated.AddUObject(this, &USCAnimAsyncAction::Cleanup);
+    bBound = true;
 }
 
 void USCAnimAsyncAction::Play(bool bFromStart)
 {
-    if (TargetComponent)
-        TargetComponent->PlayEx(TargetSequence, TargetDuration, bFromStart, false, TargetLoop);
+    if (USCCurveAnimComponent* Component = TargetComponent.Get())
+    {
+        Cleanup();
+        const uint64 ExpectedRevision = Component->GetPlaybackRevision() + 1;
+        Component->PlayEx(TargetSequence, TargetDuration, bFromStart, false, TargetLoop);
+        if (IsValid(Component) && Component->GetPlaybackRevision() == ExpectedRevision)
+        {
+            BindToPlayback();
+        }
+    }
 }
 
 void USCAnimAsyncAction::Stop()
 {
-    if (TargetComponent)
-        TargetComponent->Stop();
+    if (USCCurveAnimComponent* Component = TargetComponent.Get())
+    {
+        Component->Stop();
+    }
+    Cleanup();
 }
 
 void USCAnimAsyncAction::Pause()
 {
-    if (TargetComponent)
-        TargetComponent->Pause();
+    if (USCCurveAnimComponent* Component = TargetComponent.Get())
+    {
+        Component->Pause();
+    }
+    if (!bBound)
+    {
+        SetReadyToDestroy();
+    }
 }
 
 void USCAnimAsyncAction::Resume()
 {
-    if (TargetComponent)
-        TargetComponent->Resume();
+    if (USCCurveAnimComponent* Component = TargetComponent.Get())
+    {
+        Component->Resume();
+    }
+    if (!bBound)
+    {
+        SetReadyToDestroy();
+    }
 }
 
 void USCAnimAsyncAction::ReverseFromEnd(bool bFromStart)
 {
-    if (TargetComponent && TargetSequence)
+    if (USCCurveAnimComponent* Component = TargetComponent.Get())
     {
-        TargetComponent->PlayEx(TargetSequence, TargetDuration, bFromStart, true, TargetLoop);
+        Cleanup();
+        const uint64 ExpectedRevision = Component->GetPlaybackRevision() + 1;
+        Component->PlayEx(TargetSequence, TargetDuration, bFromStart, true, TargetLoop);
+        if (IsValid(Component) && Component->GetPlaybackRevision() == ExpectedRevision)
+        {
+            BindToPlayback();
+        }
     }
 }
 
 void USCAnimAsyncAction::ReverseFromCurrent()
 {
-    if (TargetComponent)
-        TargetComponent->ReverseFromCurrent();
+    if (USCCurveAnimComponent* Component = TargetComponent.Get())
+    {
+        Cleanup();
+        const uint64 ExpectedRevision = Component->GetPlaybackRevision() + 1;
+        Component->ReverseFromCurrent();
+        if (IsValid(Component) && Component->GetPlaybackRevision() == ExpectedRevision)
+        {
+            BindToPlayback();
+        }
+    }
+}
+
+bool USCAnimAsyncAction::IsPlaybackCurrent()
+{
+    USCCurveAnimComponent* Component = TargetComponent.Get();
+    if (!bBound || !IsValid(Component) || Component->AnimSequence != TargetSequence)
+    {
+        Cleanup();
+        return false;
+    }
+    return true;
 }
 
 void USCAnimAsyncAction::HandleUpdate(float CurrentTime, float NormalizedTime)
 {
-    if (TargetComponent && TargetComponent->AnimSequence != TargetSequence)
+    if (IsPlaybackCurrent())
     {
-        Cleanup();
-        return;
+        Update.Broadcast(NAME_None, CurrentTime, NormalizedTime);
     }
-
-    Update.Broadcast(NAME_None, static_cast<double>(CurrentTime), static_cast<double>(NormalizedTime));
 }
 
 void USCAnimAsyncAction::HandleFinished()
 {
-    float FinalTime = TargetComponent ? TargetComponent->GetPlaybackPosition() : 0.0f;
-    Finished.Broadcast(NAME_None, static_cast<double>(FinalTime), 1.0);
-
+    if (!IsPlaybackCurrent())
+    {
+        return;
+    }
+    const USCCurveAnimComponent* Component = TargetComponent.Get();
+    const double Time = Component->GetPlaybackPosition();
+    const double Normalized = Component->PlaybackDuration > 0.0f ? Time / Component->PlaybackDuration : 0.0;
     Cleanup();
+    Finished.Broadcast(NAME_None, Time, Normalized);
 }
 
 void USCAnimAsyncAction::HandleNotify(FName NotifyName)
 {
-    if (TargetComponent && TargetComponent->AnimSequence != TargetSequence)
+    if (!IsPlaybackCurrent())
     {
-        Cleanup();
         return;
     }
-
-    OnNotify.Broadcast(NotifyName, static_cast<double>(TargetComponent ? TargetComponent->GetPlaybackPosition() : 0.0f),
-        0.0);
+    const USCCurveAnimComponent* Component = TargetComponent.Get();
+    const double Time = Component->GetPlaybackPosition();
+    const double Normalized = Component->PlaybackDuration > 0.0f ? Time / Component->PlaybackDuration : 0.0;
+    OnNotify.Broadcast(NotifyName, Time, Normalized);
 }
 
 void USCAnimAsyncAction::Cleanup()
 {
-    if (TargetComponent)
+    if (USCCurveAnimComponent* Component = TargetComponent.Get())
     {
-        TargetComponent->OnAnimationUpdate.RemoveAll(this);
-        TargetComponent->OnAnimationFinished.RemoveAll(this);
-        TargetComponent->OnAnimationNotify.RemoveAll(this);
+        Component->OnAnimationUpdate.RemoveAll(this);
+        Component->OnAnimationFinished.RemoveAll(this);
+        Component->OnAnimationNotify.RemoveAll(this);
+        Component->OnPlaybackInvalidated.RemoveAll(this);
     }
+    bBound = false;
     SetReadyToDestroy();
 }

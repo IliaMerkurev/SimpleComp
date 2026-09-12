@@ -12,6 +12,7 @@ void USCWheelComponent::BeginPlay()
 {
     Super::BeginPlay();
     LastLocation = GetComponentLocation();
+    InitialRotation = GetRelativeRotation().Quaternion();
 }
 
 void USCWheelComponent::TickComponent(float DeltaTime, ELevelTick TickType,
@@ -20,8 +21,10 @@ void USCWheelComponent::TickComponent(float DeltaTime, ELevelTick TickType,
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
     AActor* Owner = GetOwner();
-    if (!ensure(Owner) || DeltaTime <= 0.0f)
+    if (!IsValid(Owner) || !FMath::IsFinite(DeltaTime) || DeltaTime <= 0.0f)
+    {
         return;
+    }
 
     const FVector CurrentLocation = GetComponentLocation();
     const FVector MoveDelta = CurrentLocation - LastLocation;
@@ -38,8 +41,12 @@ void USCWheelComponent::TickComponent(float DeltaTime, ELevelTick TickType,
         if (bInvertRoll)
             RotationDirection *= -1.0f;
 
-        const float RotationAngle = (DistanceMoved / WheelRadius) * (180.0f / PI) * RotationDirection;
-        CurrentRollRotation = FMath::Fmod(CurrentRollRotation + RotationAngle, 360.0f);
+        if (FMath::IsFinite(WheelRadius) && WheelRadius > UE_SMALL_NUMBER)
+        {
+            const double RotationAngle =
+                (static_cast<double>(DistanceMoved) / WheelRadius) * (180.0 / PI) * RotationDirection;
+            CurrentRollRotation = FMath::Fmod(CurrentRollRotation + RotationAngle, 360.0);
+        }
 
         if (bEnableSteering)
         {
@@ -48,18 +55,17 @@ void USCWheelComponent::TickComponent(float DeltaTime, ELevelTick TickType,
             if (bIsReversing)
                 TargetAngleDeg *= -1.0f;
 
-            const float ClampedTargetYaw =
-                FMath::Clamp(TargetAngleDeg * SteerMultiplier, -MaxSteerAngle, MaxSteerAngle);
-            CurrentSteerYaw = FMath::FInterpTo(CurrentSteerYaw, ClampedTargetYaw, DeltaTime, SteerSpeed);
+            TargetSteerYaw =
+                FMath::Clamp(TargetAngleDeg * SteerMultiplier, -FMath::Abs(MaxSteerAngle), FMath::Abs(MaxSteerAngle));
         }
-        else
-        {
-            CurrentSteerYaw = FMath::FInterpTo(CurrentSteerYaw, 0.0f, DeltaTime, SteerSpeed);
-        }
-
-        FQuat SteerQuat = FQuat(FVector::UpVector, FMath::DegreesToRadians(CurrentSteerYaw));
-        FQuat RollQuat = FQuat(FVector::RightVector, FMath::DegreesToRadians(-CurrentRollRotation));
-        SetRelativeRotation(SteerQuat * RollQuat);
     }
+    if (!bEnableSteering)
+    {
+        TargetSteerYaw = 0.f;
+    }
+    CurrentSteerYaw = FMath::FInterpTo(CurrentSteerYaw, TargetSteerYaw, DeltaTime, SteerSpeed);
+    const FQuat SteerQuat(FVector::UpVector, FMath::DegreesToRadians(CurrentSteerYaw));
+    const FQuat RollQuat(FVector::RightVector, FMath::DegreesToRadians(-CurrentRollRotation));
+    SetRelativeRotation(SteerQuat * InitialRotation * RollQuat);
     LastLocation = CurrentLocation;
 }

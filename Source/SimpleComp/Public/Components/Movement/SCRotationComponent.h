@@ -6,10 +6,9 @@
 #include "SCRotationComponent.generated.h"
 
 /**
- * SCRotationComponent: A professional-grade SceneComponent for handling complex
+ * SCRotationComponent: A SceneComponent for handling complex
  * rotations. Features: Target tracking, Velocity alignment, Forward Delta
- * tracking, and Axis Constraints. Optimized for VR (Quest 3) using Quaternion
- * math to prevent Gimbal Lock.
+ * tracking, and Axis Constraints. Uses quaternion interpolation between constrained Euler targets.
  */
 UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayName = "Simple Rotation Component"))
     class SIMPLECOMP_API USCRotationComponent : public USceneComponent
@@ -39,7 +38,7 @@ UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayNa
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|General", Interp, meta = (ClampMin = "0.0"))
         float DefaultInterpSpeed = 15.0f;
 
-        /** Faster interpolation speed used when switching targets or states. */
+        /** Interpolation speed used when switching targets or states. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|General", Interp, meta = (ClampMin = "0.0"))
         float SwitchInterpSpeed = 5.0f;
 
@@ -72,7 +71,7 @@ UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayNa
          * actor is null. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Target",
             meta = (EditCondition = "RotationMode == ESCRotationMode::ToTarget", EditConditionHides), Interp)
-        FVector TargetLocationOffset;
+        FVector TargetLocationOffset = FVector::ZeroVector;
 
         /** Degrees per second to rotate in Constant mode (Applied in Local Space). */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Constant",

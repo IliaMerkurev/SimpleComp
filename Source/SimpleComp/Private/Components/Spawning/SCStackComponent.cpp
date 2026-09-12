@@ -19,7 +19,8 @@ USCStackComponent::USCStackComponent()
     StackHISM->SetupAttachment(this);
     StackHISM->SetVisibility(true);
     StackHISM->SetHiddenInGame(false);
-    StackHISM->BoundsScale = 10000.0f; // Force bounds to remain huge even if instances shrink
+    StackHISM->BoundsScale =
+        10000.0f; // Existing all-hidden HISM workaround; changing it requires visual culling validation.
 }
 
 // ---------------------------------------------------------------------------
@@ -29,12 +30,11 @@ USCStackComponent::USCStackComponent()
 void USCStackComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-    if (!IsValid(StackHISM) || SlotStatuses.IsEmpty())
+    if (!bRuntimeInitialized || bShuttingDown)
     {
         return;
     }
-
+    RefreshSettings();
     if (CurveMode == ESCStackCurveMode::Inertia)
     {
         UpdateInertiaSimulation(DeltaTime);
@@ -44,66 +44,10 @@ void USCStackComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
         BuildCachedCurve();
         bNeedsTransformUpdate = true;
     }
-
     if (bNeedsTransformUpdate)
     {
         RefreshStackTransforms();
         bNeedsTransformUpdate = false;
-    }
-
-    if (GetTotalCapacity() != SlotStatuses.Num())
-    {
-        InitializeRuntimeState();
-    }
-
-    if (!bEnableFillAnimation)
-    {
-        return;
-    }
-
-    const float ClampedLevel = FMath::Clamp(FillLevel, 0.f, 1.f);
-
-    if (FMath::IsNearlyEqual(ClampedLevel, LastAppliedFillLevel, KINDA_SMALL_NUMBER))
-    {
-        return;
-    }
-
-    const int32 TotalCapacity = GetTotalCapacity();
-    const int32 NewTarget     = FMath::RoundToInt(ClampedLevel * static_cast<float>(TotalCapacity));
-    const int32 OldTarget     = FMath::RoundToInt(LastAppliedFillLevel * static_cast<float>(TotalCapacity));
-
-    LastAppliedFillLevel = ClampedLevel;
-
-    if (NewTarget > OldTarget)
-    {
-        int32 SlotsNeeded = NewTarget - OldTarget;
-        for (int32 i = 0; i < SlotStatuses.Num() && SlotsNeeded > 0; ++i)
-        {
-            if (SlotStatuses[i].Status == ESCSlotStatus::Free)
-            {
-                SlotStatuses[i].Status = ESCSlotStatus::Reserved;
-                SlotStatuses[i].TicketID = NextTicketID++;
-                StartSlotAnimation(i);
-                --SlotsNeeded;
-            }
-        }
-    }
-    else
-    {
-        int32 SlotsToRelease = OldTarget - NewTarget;
-        for (int32 i = SlotStatuses.Num() - 1; i >= 0 && SlotsToRelease > 0; --i)
-        {
-            if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
-            {
-                SlotStatuses[i].Status = ESCSlotStatus::Free;
-                SlotStatuses[i].TicketID = INDEX_NONE;
-                FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-                HiddenTransform.SetScale3D(FVector(0.0001f));
-                StackHISM->UpdateInstanceTransform(i, HiddenTransform, false, false);
-                --SlotsToRelease;
-            }
-        }
-        StackHISM->MarkRenderStateDirty();
     }
 }
 
@@ -133,53 +77,47 @@ void USCStackComponent::OnRegister()
 void USCStackComponent::BeginPlay()
 {
     Super::BeginPlay();
-
-    ensure(GetOwner() != nullptr);
-
-    if (bEnableCollision)
-    {
-        StackHISM->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    }
-    else
-    {
-        StackHISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    }
-
-    if (CurveMode == ESCStackCurveMode::ManualCurve)
-    {
-        BuildCachedCurve();
-    }
-
+    bShuttingDown = false;
+    bRuntimeInitialized = true;
     InitializeRuntimeState();
-
-    if (bEnableFillAnimation || CurveMode == ESCStackCurveMode::Inertia || CurveMode == ESCStackCurveMode::ManualCurve)
-    {
-        PrimaryComponentTick.bCanEverTick = true;
-        SetComponentTickEnabled(true);
-    }
-    
-    if (AActor* Owner = GetOwner())
-    {
-        PreviousOwnerLocation = Owner->GetActorLocation();
-    }
-
-    if (!bEnableFillAnimation && InitialFillLevel > 0.f)
+    PreviousOwnerLocation = GetComponentLocation();
+    RefreshSettings();
+    if (!bEnableFillAnimation)
     {
         SetFillLevel(InitialFillLevel);
+    }
+    // Settings can be written directly by Blueprint or Sequencer while Tick is disabled.
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().SetTimer(SettingsTimerHandle, this, &USCStackComponent::RefreshSettings, 0.1f, true);
     }
 }
 
 void USCStackComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    bShuttingDown = true;
     CancelSpawning();
     CancelPendingFill();
     ClearAllAnimations();
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(SettingsTimerHandle);
+    }
+    bRuntimeInitialized = false;
     Super::EndPlay(EndPlayReason);
 }
 
 void USCStackComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
 {
-    // Unreal Engine natively handles destruction of CreateDefaultSubobject components.
+    bShuttingDown = true;
+    CancelSpawning();
+    CancelPendingFill();
+    ClearAllAnimations();
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(SettingsTimerHandle);
+    }
+    bRuntimeInitialized = false;
     Super::OnComponentDestroyed(bDestroyingHierarchy);
 }
 
@@ -234,59 +172,38 @@ void USCStackComponent::InitializeRuntimeState()
     {
         return;
     }
-
-    if (IsValid(ElementMesh))
+    int32 Capacity = GetTotalCapacity();
+    const int32 Occupied = TicketToIndex.Num();
+    if (Capacity <= 0 || Capacity < Occupied)
     {
-        StackHISM->SetStaticMesh(ElementMesh);
+        // A layout edit must not destroy resources or invalidate in-flight reservations.
+        UE_LOG(LogSCStack, Warning, TEXT("Stack resize rejected: capacity must fit all occupied slots."));
+        Rows = AppliedDimensions.X;
+        Columns = AppliedDimensions.Y;
+        Layers = AppliedDimensions.Z;
+        Capacity = GetTotalCapacity();
     }
-    else
+    if (Capacity < SlotStatuses.Num())
     {
-        UE_LOG(LogSCStack, Warning, TEXT("USCStackComponent on '%s': ElementMesh is not set. "
-            "HISM will be empty until a mesh is assigned."), *GetOwner()->GetName());
+        SlotStatuses.RemoveAll(
+            [](const FSCSlotData& Slot)
+            {
+                return Slot.Status == ESCSlotStatus::Free;
+            });
     }
-
+    SlotStatuses.SetNum(Capacity);
+    RebuildTicketLookup();
+    AppliedDimensions = FIntVector(FMath::Max(1, Rows), FMath::Max(1, Columns), FMath::Max(1, Layers));
+    StackHISM->SetStaticMesh(ElementMesh);
     StackHISM->ClearInstances();
-
-    const int32 SafeRows    = FMath::Max(1, Rows);
-    const int32 SafeColumns = FMath::Max(1, Columns);
-    const int32 SafeLayers  = FMath::Max(1, Layers);
-    const int32 TotalSlots  = SafeRows * SafeColumns * SafeLayers;
-
-    TArray<FTransform> InitialTransforms;
-    InitialTransforms.Reserve(TotalSlots);
-
-    for (int32 i = 0; i < TotalSlots; ++i)
+    TArray<FTransform> Transforms;
+    Transforms.Reserve(Capacity);
+    for (int32 Index = 0; Index < Capacity; ++Index)
     {
-        // Add instances at full scale so HISM computes the correct maximum bounding box
-        FTransform FullTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-        InitialTransforms.Add(FullTransform);
+        Transforms.Add(CalculateDeformedTransform(CalculateSlotGridTransform(Index)));
     }
-
-    StackHISM->AddInstances(InitialTransforms, false);
-
-    // Now hide them by setting scale to a near-zero value.
-    // We cannot use exactly FVector::ZeroVector, because if a HISM tree rebuilds while all instances
-    // are exactly 0 scale, its bounds collapse to 0, causing it to be permanently frustum culled.
-    for (int32 i = 0; i < TotalSlots; ++i)
-    {
-        FTransform HiddenTransform = InitialTransforms[i];
-        HiddenTransform.SetScale3D(FVector(0.0001f));
-        StackHISM->UpdateInstanceTransform(i, HiddenTransform, false, false, false);
-    }
-    
-    StackHISM->MarkRenderStateDirty();
-
-    SlotStatuses.Reset(TotalSlots);
-    for (int32 i = 0; i < TotalSlots; ++i)
-    {
-        FSCSlotData Data;
-        Data.Status = ESCSlotStatus::Free;
-        Data.TicketID = INDEX_NONE;
-        SlotStatuses.Add(Data);
-    }
-
-    NextTicketID = 0;
-    LastAppliedFillLevel = 0.f;
+    StackHISM->AddInstances(Transforms, false);
+    RefreshStackTransforms();
 }
 
 void USCStackComponent::UpdateEditorPreview()
@@ -316,10 +233,7 @@ void USCStackComponent::UpdateEditorPreview()
 
     StackHISM->SetStaticMesh(ElementMesh);
 
-    const int32 SafeRows    = FMath::Max(1, Rows);
-    const int32 SafeColumns = FMath::Max(1, Columns);
-    const int32 SafeLayers  = FMath::Max(1, Layers);
-    const int32 TotalSlots  = SafeRows * SafeColumns * SafeLayers;
+    const int32 TotalSlots = GetTotalCapacity();
 
     TArray<FTransform> PreviewTransforms;
     PreviewTransforms.Reserve(TotalSlots);
@@ -342,9 +256,12 @@ void USCStackComponent::UpdateEditorPreview()
 
 FTransform USCStackComponent::CalculateSlotGridTransform(int32 SlotID) const
 {
+    if (GetTotalCapacity() == 0)
+    {
+        return FTransform::Identity;
+    }
     const int32 SafeRows    = FMath::Max(1, Rows);
     const int32 SafeColumns = FMath::Max(1, Columns);
-    const int32 SafeLayers  = FMath::Max(1, Layers);
 
     const int32 Layer = SlotID / (SafeRows * SafeColumns);
     const int32 Row   = (SlotID % (SafeRows * SafeColumns)) / SafeColumns;
@@ -375,9 +292,12 @@ FTransform USCStackComponent::CalculateSlotGridTransform(int32 SlotID) const
 
     FTransform SlotTransform;
     SlotTransform.SetLocation(LocalOffset);
-    
-    FRandomStream Stream(RandomSeed + SlotID);
-    
+
+    const int32 Identity = SlotStatuses.IsValidIndex(SlotID) && SlotStatuses[SlotID].TicketID != INDEX_NONE
+                               ? SlotStatuses[SlotID].TicketID
+                               : SlotID;
+    FRandomStream Stream(static_cast<int32>(static_cast<uint32>(RandomSeed) + static_cast<uint32>(Identity)));
+
     if (bEnableRandomRotation)
     {
         FRotator RandRot(
@@ -472,19 +392,90 @@ void USCStackComponent::BuildCachedCurve()
 
 int32 USCStackComponent::FindIndexByTicket(int32 TicketID) const
 {
-    if (TicketID == INDEX_NONE)
-    {
-        return INDEX_NONE;
-    }
+    const int32* Index = TicketToIndex.Find(TicketID);
+    return Index ? *Index : INDEX_NONE;
+}
 
-    for (int32 i = 0; i < SlotStatuses.Num(); ++i)
+void USCStackComponent::RebuildTicketLookup()
+{
+    TicketToIndex.Reset();
+    for (int32 Index = 0; Index < SlotStatuses.Num(); ++Index)
     {
-        if (SlotStatuses[i].TicketID == TicketID)
+        if (SlotStatuses[Index].Status != ESCSlotStatus::Free)
         {
-            return i;
+            TicketToIndex.Add(SlotStatuses[Index].TicketID, Index);
         }
     }
-    return INDEX_NONE;
+}
+
+uint32 USCStackComponent::CalculateSettingsHash() const
+{
+    uint32 Hash = GetTypeHash(ElementMesh.Get());
+    const auto Add = [&Hash](const auto& Value)
+    {
+        Hash = HashCombine(Hash, GetTypeHash(Value));
+    };
+    Add(Rows);
+    Add(Columns);
+    Add(Layers);
+    Add(bAutoCalculatePadding);
+    Add(ManualPadding);
+    Add(TargetElementScale);
+    Add(RandomSeed);
+    Add(bEnableRandomRotation);
+    Add(RandomRotationMin.Pitch);
+    Add(RandomRotationMin.Yaw);
+    Add(RandomRotationMin.Roll);
+    Add(RandomRotationMax.Pitch);
+    Add(RandomRotationMax.Yaw);
+    Add(RandomRotationMax.Roll);
+    Add(bEnableRandomScale);
+    Add(bUniformRandomScale);
+    Add(RandomScaleMin);
+    Add(RandomScaleMax);
+    Add(static_cast<uint8>(CurveMode));
+    Add(TiltScale);
+    Add(InertiaMaxTiltDegrees);
+    return Hash;
+}
+
+void USCStackComponent::RefreshSettings()
+{
+    if (!bRuntimeInitialized || bShuttingDown || bSynchronizingSettings || !IsValid(StackHISM))
+    {
+        return;
+    }
+    TGuardValue<bool> Guard(bSynchronizingSettings, true);
+    StackHISM->SetCollisionEnabled(bEnableCollision ? ECollisionEnabled::QueryAndPhysics
+                                                    : ECollisionEnabled::NoCollision);
+    SetComponentTickEnabled(bEnableFillAnimation || CurveMode != ESCStackCurveMode::None);
+    if (AppliedCurveMode != CurveMode)
+    {
+        PreviousOwnerLocation = GetComponentLocation();
+        PreviousOwnerVelocity = FVector::ZeroVector;
+        CurrentTipLag = CurrentTipVelocity = FVector::ZeroVector;
+        AppliedCurveMode = CurveMode;
+    }
+    const uint32 SettingsHash = CalculateSettingsHash();
+    if (SettingsHash != AppliedSettingsHash)
+    {
+        BuildCachedCurve();
+        if (GetTotalCapacity() != SlotStatuses.Num())
+        {
+            InitializeRuntimeState();
+        }
+        else
+        {
+            StackHISM->SetStaticMesh(ElementMesh);
+        }
+        AppliedDimensions = FIntVector(FMath::Max(1, Rows), FMath::Max(1, Columns), FMath::Max(1, Layers));
+        AppliedSettingsHash = CalculateSettingsHash();
+        RefreshStackTransforms();
+    }
+    if (bEnableFillAnimation && FMath::IsFinite(FillLevel) && !FMath::IsNearlyEqual(FillLevel, LastAppliedFillLevel))
+    {
+        SetFillLevel(FillLevel);
+    }
 }
 
 FTransform USCStackComponent::CalculateDeformedTransform(const FTransform& GridTransform) const
@@ -527,7 +518,7 @@ FTransform USCStackComponent::CalculateDeformedTransform(const FTransform& GridT
         
         // Clamp the angle to InertiaMaxTiltDegrees
         float AngleRad = TargetQuat.GetAngle();
-        float MaxAngleRad = FMath::DegreesToRadians(InertiaMaxTiltDegrees);
+        float MaxAngleRad = FMath::DegreesToRadians(FMath::Clamp(InertiaMaxTiltDegrees, 0.f, 90.f));
         if (AngleRad > MaxAngleRad && AngleRad > KINDA_SMALL_NUMBER)
         {
             FVector Axis = TargetQuat.GetRotationAxis();
@@ -564,14 +555,15 @@ FTransform USCStackComponent::CalculateDeformedTransform(const FTransform& GridT
                 TargetQuat = CachedRotations.Last().Value;
             }
         }
-        
-        CurveQuat = FQuat::Slerp(FQuat::Identity, TargetQuat, TiltScale);
+
+        CurveQuat = TargetQuat;
     }
     else
     {
         return GridTransform;
     }
-    
+
+    CurveQuat = FQuat::Slerp(FQuat::Identity, CurveQuat, FMath::Clamp(TiltScale, 0.f, 1.f));
     FVector FinalPos = CurvePos + CurveQuat.RotateVector(FVector(LocalPos.X, LocalPos.Y, 0.0f));
     
     FTransform FinalTransform;
@@ -585,35 +577,42 @@ FTransform USCStackComponent::CalculateDeformedTransform(const FTransform& GridT
 void USCStackComponent::UpdateInertiaSimulation(float DeltaTime)
 {
     AActor* Owner = GetOwner();
-    if (!IsValid(Owner) || DeltaTime <= 0.0f)
+    if (!IsValid(Owner) || !FMath::IsFinite(DeltaTime) || DeltaTime <= UE_SMALL_NUMBER)
     {
         return;
     }
 
-    FVector CurrentOwnerLocation = Owner->GetActorLocation();
+    FVector CurrentOwnerLocation = GetComponentLocation();
     FVector CurrentVelocity = (CurrentOwnerLocation - PreviousOwnerLocation) / DeltaTime;
-    
-    FVector LocalAcceleration = Owner->GetActorTransform().InverseTransformVectorNoScale(CurrentVelocity - PreviousOwnerVelocity) / DeltaTime;
-    
+
+    FVector LocalAcceleration =
+        GetComponentTransform().InverseTransformVectorNoScale(CurrentVelocity - PreviousOwnerVelocity) / DeltaTime;
+
     // Target lag is opposite to acceleration
-    FVector TargetTipLag = -LocalAcceleration * 0.05f; 
-    
-    TargetTipLag.X = FMath::Clamp(TargetTipLag.X, -MaxTipLag, MaxTipLag);
-    TargetTipLag.Y = FMath::Clamp(TargetTipLag.Y, -MaxTipLag, MaxTipLag);
+    FVector TargetTipLag = -LocalAcceleration * 0.05f;
+
+    const double SafeMaxLag = FMath::IsFinite(MaxTipLag) ? FMath::Max(0.f, MaxTipLag) : 0.f;
+    TargetTipLag.X = FMath::Clamp(TargetTipLag.X, -SafeMaxLag, SafeMaxLag);
+    TargetTipLag.Y = FMath::Clamp(TargetTipLag.Y, -SafeMaxLag, SafeMaxLag);
     TargetTipLag.Z = 0.0f;
-    
-    FVector SpringForce = (TargetTipLag - CurrentTipLag) * InertiaStiffness;
-    FVector DampingForce = -CurrentTipVelocity * InertiaDamping;
-    
-    FVector Acceleration = SpringForce + DampingForce;
-    CurrentTipVelocity += Acceleration * DeltaTime;
-    CurrentTipLag += CurrentTipVelocity * DeltaTime;
-    
-    if (CurrentTipLag.SizeSquared() > KINDA_SMALL_NUMBER || CurrentTipVelocity.SizeSquared() > KINDA_SMALL_NUMBER)
+
+    const FVector PreviousTipLag = CurrentTipLag;
+    const double Step = DeltaTime;
+    const double Stiffness = FMath::IsFinite(InertiaStiffness) ? FMath::Max(0.f, InertiaStiffness) : 0.f;
+    const double Damping = FMath::IsFinite(InertiaDamping) ? FMath::Max(0.f, InertiaDamping) : 0.f;
+    // Implicit Euler solves the spring and damping together, avoiding explicit-step energy growth on long frames.
+    CurrentTipVelocity = (CurrentTipVelocity + Step * Stiffness * (TargetTipLag - CurrentTipLag)) /
+                         (1.0 + Step * Damping + Step * Step * Stiffness);
+    CurrentTipLag += CurrentTipVelocity * Step;
+    if (CurrentTipLag.ContainsNaN() || CurrentTipVelocity.ContainsNaN())
+    {
+        CurrentTipLag = CurrentTipVelocity = FVector::ZeroVector;
+    }
+    if (!CurrentTipLag.Equals(PreviousTipLag, UE_SMALL_NUMBER))
     {
         bNeedsTransformUpdate = true;
     }
-    
+
     PreviousOwnerLocation = CurrentOwnerLocation;
     PreviousOwnerVelocity = CurrentVelocity;
 }
@@ -624,41 +623,23 @@ void USCStackComponent::RefreshStackTransforms()
     {
         return;
     }
-    
-    const int32 NumSlots = SlotStatuses.Num();
-    TArray<FTransform> NewTransforms;
-    NewTransforms.SetNumUninitialized(NumSlots);
-    
-    for (int32 i = 0; i < NumSlots; ++i)
+    TArray<FTransform> Transforms;
+    Transforms.Reserve(SlotStatuses.Num());
+    for (int32 Index = 0; Index < SlotStatuses.Num(); ++Index)
     {
-        // For animating slots, preserve their current transform 
-        // (which is being updated by TickSlotAnimation)
-        if (ActiveAnimations.Contains(i))
+        FTransform Transform = CalculateDeformedTransform(CalculateSlotGridTransform(Index));
+        const FSCSlotData& Slot = SlotStatuses[Index];
+        if (Slot.Status != ESCSlotStatus::Filled)
         {
-            FTransform AnimTransform;
-            StackHISM->GetInstanceTransform(i, AnimTransform, false);
-            NewTransforms[i] = AnimTransform;
+            Transform.SetScale3D(FVector(0.0001f));
         }
-        else
+        else if (const FSCSlotAnimState* Animation = ActiveAnimations.Find(Slot.TicketID))
         {
-            FTransform Deformed = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-            
-            if (SlotStatuses[i].Status == ESCSlotStatus::Free || SlotStatuses[i].Status == ESCSlotStatus::Reserved)
-            {
-                Deformed.SetScale3D(FVector(0.0001f));
-            }
-            else // ESCSlotStatus::Filled
-            {
-                Deformed.SetScale3D(TargetElementScale);
-            }
-            
-            NewTransforms[i] = Deformed;
+            Transform.SetScale3D(FMath::Lerp(FVector(0.0001f), Transform.GetScale3D(), Animation->Progress));
         }
+        Transforms.Add(Transform);
     }
-    
-    // Batch update all instances at once. This avoids rebuilding the HISM tree 
-    // repeatedly (N times per frame) and gives a massive performance boost.
-    StackHISM->BatchUpdateInstancesTransforms(0, NewTransforms, false, true, false);
+    StackHISM->BatchUpdateInstancesTransforms(0, Transforms, false, true, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -667,67 +648,61 @@ void USCStackComponent::RefreshStackTransforms()
 
 int32 USCStackComponent::RequestSlot()
 {
-    if (SlotStatuses.IsEmpty())
+    if (!bRuntimeInitialized || bShuttingDown || NextTicketID == MAX_int32)
     {
-        UE_LOG(LogSCStack, Warning, TEXT("USCStackComponent on '%s': RequestSlot called before BeginPlay — "
-            "SlotStatuses is empty. Returning INDEX_NONE."), *GetOwner()->GetName());
         return INDEX_NONE;
     }
-
-    for (int32 i = 0; i < SlotStatuses.Num(); ++i)
+    for (int32 Index = 0; Index < SlotStatuses.Num(); ++Index)
     {
-        if (SlotStatuses[i].Status == ESCSlotStatus::Free)
+        FSCSlotData& Slot = SlotStatuses[Index];
+        if (Slot.Status == ESCSlotStatus::Free)
         {
-            SlotStatuses[i].Status = ESCSlotStatus::Reserved;
-            SlotStatuses[i].TicketID = NextTicketID;
-            return NextTicketID++;
+            Slot.Status = ESCSlotStatus::Reserved;
+            Slot.TicketID = NextTicketID++;
+            TicketToIndex.Add(Slot.TicketID, Index);
+            return Slot.TicketID;
         }
     }
-
-    UE_LOG(LogSCStack, Verbose, TEXT("USCStackComponent on '%s': No free slots available."),
-        *GetOwner()->GetName());
-
     return INDEX_NONE;
 }
 
 void USCStackComponent::ConfirmArrival(int32 TicketID)
 {
-    int32 ActualSlotID = FindIndexByTicket(TicketID);
-    if (ActualSlotID == INDEX_NONE || SlotStatuses[ActualSlotID].Status != ESCSlotStatus::Reserved)
+    if (bShuttingDown)
     {
         return;
     }
-
-    SlotStatuses[ActualSlotID].Status = ESCSlotStatus::Filled;
-
-    UWorld* World = GetWorld();
-    if (!ensure(IsValid(World)))
-    {
-        return;
-    }
-
-    FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(ActualSlotID));
-    SlotTransform.SetScale3D(TargetElementScale);
-    StackHISM->UpdateInstanceTransform(ActualSlotID, SlotTransform, false, true, true);
-    StackHISM->BuildTreeIfOutdated(true, false);
-
-    OnSlotFilled(ActualSlotID);
+    StartSlotAnimation(FindIndexByTicket(TicketID));
 }
 
 void USCStackComponent::ReleaseSlot(int32 TicketID)
 {
-    int32 ActualSlotID = FindIndexByTicket(TicketID);
-    if (ActualSlotID == INDEX_NONE)
+    const int32 Index = FindIndexByTicket(TicketID);
+    if (Index != INDEX_NONE && SlotStatuses[Index].Status == ESCSlotStatus::Reserved)
     {
-        UE_LOG(LogSCStack, Warning, TEXT("USCStackComponent on '%s': ReleaseSlot called with invalid TicketID %d."),
-            *GetOwner()->GetName(), TicketID);
+        FreeSlot(Index);
+    }
+}
+
+void USCStackComponent::FreeSlot(int32 SlotIndex)
+{
+    if (!SlotStatuses.IsValidIndex(SlotIndex))
+    {
         return;
     }
-
-    if (SlotStatuses[ActualSlotID].Status == ESCSlotStatus::Reserved)
+    const int32 Ticket = SlotStatuses[SlotIndex].TicketID;
+    ActiveAnimations.Remove(Ticket);
+    TicketToIndex.Remove(Ticket);
+    SlotStatuses[SlotIndex] = FSCSlotData();
+    if (IsValid(StackHISM) && !bShuttingDown)
     {
-        SlotStatuses[ActualSlotID].Status = ESCSlotStatus::Free;
-        SlotStatuses[ActualSlotID].TicketID = INDEX_NONE;
+        FTransform Hidden = CalculateDeformedTransform(CalculateSlotGridTransform(SlotIndex));
+        Hidden.SetScale3D(FVector(0.0001f));
+        StackHISM->UpdateInstanceTransform(SlotIndex, Hidden, false, true);
+    }
+    if (ActiveAnimations.IsEmpty())
+    {
+        ClearAllAnimations();
     }
 }
 
@@ -754,10 +729,15 @@ void USCStackComponent::CancelSpawning()
     }
 
     PendingSpawnWaves.Empty();
+    ++SpawnRevision;
 }
 
 int32 USCStackComponent::CalculateSlotWaveIndex(int32 SlotID, const FSCStackSpawnSettings& Settings) const
 {
+    if (GetTotalCapacity() == 0)
+    {
+        return 0;
+    }
     const int32 SafeRows = FMath::Max(1, Rows);
     const int32 SafeColumns = FMath::Max(1, Columns);
     const int32 SafeLayers = FMath::Max(1, Layers);
@@ -813,18 +793,22 @@ void USCStackComponent::SpawnActorsWithSettings(const FSCStackSpawnSettings& Set
         return;
     }
 
+    if (bShuttingDown || !IsValid(SpawnActorClass))
+    {
+        return;
+    }
     CancelSpawning();
-    ClearAllAnimations();
+    const uint64 Revision = SpawnRevision;
 
     ActiveSpawnSettings = Settings;
 
     TMap<int32, TArray<int32>> WaveBuckets;
     for (int32 i = 0; i < SlotStatuses.Num(); ++i)
     {
-        if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
+        if (SlotStatuses[i].Status == ESCSlotStatus::Filled && !ConvertingTickets.Contains(SlotStatuses[i].TicketID))
         {
             const int32 WaveIdx = CalculateSlotWaveIndex(i, Settings);
-            WaveBuckets.FindOrAdd(WaveIdx).Add(i);
+            WaveBuckets.FindOrAdd(WaveIdx).Add(SlotStatuses[i].TicketID);
         }
     }
 
@@ -843,9 +827,9 @@ void USCStackComponent::SpawnActorsWithSettings(const FSCStackSpawnSettings& Set
         PendingSpawnWaves.Add(MoveTemp(WaveBuckets[WaveIdx]));
     }
 
-    if (Settings.SpawnInterval <= 0.0f)
+    if (!FMath::IsFinite(Settings.SpawnInterval) || Settings.SpawnInterval <= 0.0f)
     {
-        while (!PendingSpawnWaves.IsEmpty())
+        while (IsValid(this) && !bShuttingDown && Revision == SpawnRevision && !PendingSpawnWaves.IsEmpty())
         {
             ProcessNextSpawnWave();
         }
@@ -854,7 +838,7 @@ void USCStackComponent::SpawnActorsWithSettings(const FSCStackSpawnSettings& Set
     {
         ProcessNextSpawnWave();
 
-        if (!PendingSpawnWaves.IsEmpty())
+        if (IsValid(this) && !bShuttingDown && Revision == SpawnRevision && !PendingSpawnWaves.IsEmpty())
         {
             World->GetTimerManager().SetTimer(
                 SpawnWaveTimerHandle,
@@ -869,71 +853,69 @@ void USCStackComponent::SpawnActorsWithSettings(const FSCStackSpawnSettings& Set
 void USCStackComponent::ProcessNextSpawnWave()
 {
     UWorld* World = GetWorld();
-    if (!IsValid(World) || PendingSpawnWaves.IsEmpty())
+    if (!IsValid(World) || bShuttingDown || PendingSpawnWaves.IsEmpty())
     {
-        CancelSpawning();
         return;
     }
-
-    TArray<int32> CurrentWave = MoveTemp(PendingSpawnWaves[0]);
+    const uint64 Revision = SpawnRevision;
+    const FSCStackSpawnSettings Settings = ActiveSpawnSettings;
+    TArray<int32> Wave = MoveTemp(PendingSpawnWaves[0]);
     PendingSpawnWaves.RemoveAt(0);
-
-    FActorSpawnParameters SpawnParams;
-    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-    for (int32 SlotID : CurrentWave)
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    for (int32 Ticket : Wave)
     {
-        if (!SlotStatuses.IsValidIndex(SlotID) || SlotStatuses[SlotID].Status != ESCSlotStatus::Filled)
+        int32 Index = FindIndexByTicket(Ticket);
+        if (Index == INDEX_NONE || SlotStatuses[Index].Status != ESCSlotStatus::Filled ||
+            ConvertingTickets.Contains(Ticket))
         {
             continue;
         }
-
-        FTransform InstanceWorldTransform;
-        if (IsValid(StackHISM))
+        const FTransform Transform = GetSlotWorldTransform(Ticket);
+        // SpawnActor runs construction/BeginPlay synchronously; reserve this conversion against reentrant extraction.
+        ConvertingTickets.Add(Ticket);
+        AActor* Actor =
+            IsValid(SpawnActorClass) ? World->SpawnActor<AActor>(SpawnActorClass, Transform, Params) : nullptr;
+        ConvertingTickets.Remove(Ticket);
+        if (!IsValid(this) || bShuttingDown)
         {
-            StackHISM->GetInstanceTransform(SlotID, InstanceWorldTransform, true);
+            return;
+        }
+        if (IsValid(Actor))
+        {
+            Index = FindIndexByTicket(Ticket);
+            if (Index != INDEX_NONE)
+            {
+                FreeSlot(Index);
+            }
+            // Commit removal before calling owner code. A failed spawn leaves the ticket and resource intact.
+            if (Actor->Implements<USCMessageInterface>())
+            {
+                FSCMessagePayload Payload;
+                Payload.Value = Settings.MessageValue;
+                Payload.StringMessage = Settings.MessageNote;
+                Payload.Sender = GetOwner();
+                Payload.TransformData = Transform;
+                ISCMessageInterface::Execute_OnReceiveSCMessage(Actor, Payload);
+            }
+            if (!IsValid(this) || bShuttingDown || Revision != SpawnRevision)
+            {
+                return;
+            }
+            if (IsValid(Actor))
+            {
+                OnActorSpawned(Actor, Index);
+            }
         }
         else
         {
-            InstanceWorldTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID)) * GetComponentTransform();
+            UE_LOG(LogSCStack, Warning, TEXT("Actor spawn failed for ticket %d; resource retained."), Ticket);
         }
-
-        if (IsValid(SpawnActorClass))
+        if (!IsValid(this) || bShuttingDown || Revision != SpawnRevision)
         {
-            AActor* NewActor = World->SpawnActor<AActor>(SpawnActorClass, InstanceWorldTransform, SpawnParams);
-            if (IsValid(NewActor))
-            {
-                if (NewActor->Implements<USCMessageInterface>())
-                {
-                    FSCMessagePayload Payload;
-                    Payload.Value = ActiveSpawnSettings.MessageValue;
-                    Payload.StringMessage = ActiveSpawnSettings.MessageNote;
-                    Payload.Sender = GetOwner();
-                    Payload.TransformData = InstanceWorldTransform;
-
-                    ISCMessageInterface::Execute_OnReceiveSCMessage(NewActor, Payload);
-                }
-
-                OnActorSpawned(NewActor, SlotID);
-            }
+            return;
         }
-
-        if (IsValid(StackHISM))
-        {
-            FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
-            HiddenTransform.SetScale3D(FVector(0.0001f));
-            StackHISM->UpdateInstanceTransform(SlotID, HiddenTransform, false, false);
-        }
-
-        SlotStatuses[SlotID].Status = ESCSlotStatus::Free;
-        SlotStatuses[SlotID].TicketID = INDEX_NONE;
     }
-
-    if (IsValid(StackHISM))
-    {
-        StackHISM->MarkRenderStateDirty();
-    }
-
     if (PendingSpawnWaves.IsEmpty())
     {
         CancelSpawning();
@@ -944,8 +926,8 @@ void USCStackComponent::ProcessNextSpawnWave()
 bool USCStackComponent::ExtractSlot(ESCStackExtractionOrder Order, int32& OutTicketID, FTransform& OutTransform)
 {
     OutTicketID = INDEX_NONE;
-    
-    if (SlotStatuses.IsEmpty())
+
+    if (bShuttingDown || SlotStatuses.IsEmpty() || GetTotalCapacity() == 0)
     {
         return false;
     }
@@ -956,7 +938,8 @@ bool USCStackComponent::ExtractSlot(ESCStackExtractionOrder Order, int32& OutTic
     {
         for (int32 i = 0; i < SlotStatuses.Num(); ++i)
         {
-            if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
+            if (SlotStatuses[i].Status == ESCSlotStatus::Filled &&
+                !ConvertingTickets.Contains(SlotStatuses[i].TicketID))
             {
                 CandidateSlots.Add(i);
             }
@@ -964,12 +947,14 @@ bool USCStackComponent::ExtractSlot(ESCStackExtractionOrder Order, int32& OutTic
     }
     else if (Order == ESCStackExtractionOrder::FromLastAdded)
     {
-        for (int32 i = SlotStatuses.Num() - 1; i >= 0; --i)
+        // Preserve the existing reverse-sequential extraction strategy.
+        for (int32 Index = SlotStatuses.Num() - 1; Index >= 0; --Index)
         {
-            if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
+            const FSCSlotData& Slot = SlotStatuses[Index];
+            if (Slot.Status == ESCSlotStatus::Filled && !ConvertingTickets.Contains(Slot.TicketID))
             {
-                CandidateSlots.Add(i);
-                break; // Found the last added, stop searching
+                CandidateSlots.Add(Index);
+                break;
             }
         }
     }
@@ -984,7 +969,8 @@ bool USCStackComponent::ExtractSlot(ESCStackExtractionOrder Order, int32& OutTic
         int32 HighestLayer = -1;
         for (int32 i = SlotStatuses.Num() - 1; i >= 0; --i)
         {
-            if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
+            if (SlotStatuses[i].Status == ESCSlotStatus::Filled &&
+                !ConvertingTickets.Contains(SlotStatuses[i].TicketID))
             {
                 HighestLayer = i / ItemsPerLayer;
                 break;
@@ -998,7 +984,8 @@ bool USCStackComponent::ExtractSlot(ESCStackExtractionOrder Order, int32& OutTic
 
             for (int32 i = StartIdx; i < EndIdx; ++i)
             {
-                if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
+                if (SlotStatuses[i].Status == ESCSlotStatus::Filled &&
+                    !ConvertingTickets.Contains(SlotStatuses[i].TicketID))
                 {
                     CandidateSlots.Add(i);
                 }
@@ -1026,73 +1013,18 @@ bool USCStackComponent::ExtractSlot(ESCStackExtractionOrder Order, int32& OutTic
 
 bool USCStackComponent::ExtractSpecificSlot(int32 TicketID, FTransform& OutTransform)
 {
-    int32 SlotID = FindIndexByTicket(TicketID);
-    if (SlotID == INDEX_NONE || SlotStatuses[SlotID].Status != ESCSlotStatus::Filled)
+    const int32 Index = FindIndexByTicket(TicketID);
+    if (bShuttingDown || Index == INDEX_NONE || SlotStatuses[Index].Status != ESCSlotStatus::Filled ||
+        ConvertingTickets.Contains(TicketID))
     {
         return false;
     }
-
-    // Get true world transform for spawning the actor
-    if (IsValid(StackHISM))
-    {
-        StackHISM->GetInstanceTransform(SlotID, OutTransform, true);
-    }
-    else
-    {
-        OutTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID)) * GetComponentTransform();
-    }
-
-    for (int32 i = SlotID; i < SlotStatuses.Num() - 1; ++i)
-    {
-        SlotStatuses[i] = SlotStatuses[i + 1];
-    }
-    SlotStatuses[SlotStatuses.Num() - 1].Status = ESCSlotStatus::Free;
-    SlotStatuses[SlotStatuses.Num() - 1].TicketID = INDEX_NONE;
-
-    TMap<int32, FSCSlotAnimState> NewAnimations;
-    for (const auto& Pair : ActiveAnimations)
-    {
-        int32 OldIdx = Pair.Key;
-        if (OldIdx > SlotID)
-        {
-            NewAnimations.Add(OldIdx - 1, Pair.Value);
-        }
-        else if (OldIdx < SlotID)
-        {
-            NewAnimations.Add(OldIdx, Pair.Value);
-        }
-    }
-    ActiveAnimations = MoveTemp(NewAnimations);
-
-    if (IsValid(StackHISM))
-    {
-        for (int32 i = SlotID; i < SlotStatuses.Num(); ++i)
-        {
-            FTransform NewTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-            
-            if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
-            {
-                // If animating, keep it scaled down for the animation to handle
-                if (!ActiveAnimations.Contains(i))
-                {
-                    NewTransform.SetScale3D(TargetElementScale);
-                }
-                else
-                {
-                    NewTransform.SetScale3D(FVector(0.0001f));
-                }
-            }
-            else // Free or Reserved
-            {
-                NewTransform.SetScale3D(FVector(0.0001f));
-            }
-            
-            StackHISM->UpdateInstanceTransform(i, NewTransform, false, true, true);
-        }
-        
-        StackHISM->BuildTreeIfOutdated(true, false);
-    }
-
+    OutTransform = GetSlotWorldTransform(TicketID);
+    FreeSlot(Index);
+    SlotStatuses.RemoveAt(Index);
+    SlotStatuses.AddDefaulted();
+    RebuildTicketLookup();
+    RefreshStackTransforms();
     return true;
 }
 
@@ -1102,26 +1034,11 @@ bool USCStackComponent::ExtractSpecificSlot(int32 TicketID, FTransform& OutTrans
 
 FTransform USCStackComponent::GetSlotWorldTransform(int32 TicketID) const
 {
-    int32 ActualSlotID = FindIndexByTicket(TicketID);
-    if (ActualSlotID == INDEX_NONE)
-    {
-        return GetComponentTransform();
-    }
-
-    if (IsValid(StackHISM) && StackHISM->GetInstanceCount() > 0 && SlotStatuses.IsValidIndex(ActualSlotID))
-    {
-        FTransform WorldTransform;
-        StackHISM->GetInstanceTransform(ActualSlotID, WorldTransform, true);
-        return WorldTransform;
-    }
-
-    AActor* Owner = GetOwner();
-    if (IsValid(Owner) && ActualSlotID >= 0)
-    {
-        return Owner->GetActorTransform() * CalculateDeformedTransform(CalculateSlotGridTransform(ActualSlotID));
-    }
-
-    return FTransform::Identity;
+    const int32 Index = FindIndexByTicket(TicketID);
+    // Destinations and extracted actors use full element scale, independent of the visibility animation.
+    return Index == INDEX_NONE
+               ? GetComponentTransform()
+               : CalculateDeformedTransform(CalculateSlotGridTransform(Index)) * GetComponentTransform();
 }
 
 int32 USCStackComponent::GetFilledSlotCount() const
@@ -1139,7 +1056,13 @@ int32 USCStackComponent::GetFilledSlotCount() const
 
 int32 USCStackComponent::GetTotalCapacity() const
 {
-    return FMath::Max(1, Rows) * FMath::Max(1, Columns) * FMath::Max(1, Layers);
+    const int64 Plane = static_cast<int64>(FMath::Max(1, Rows)) * FMath::Max(1, Columns);
+    if (Plane > MAX_int32)
+    {
+        return 0;
+    }
+    const int64 Capacity = Plane * FMath::Max(1, Layers);
+    return Capacity <= MAX_int32 ? static_cast<int32>(Capacity) : 0;
 }
 
 
@@ -1149,114 +1072,92 @@ int32 USCStackComponent::GetTotalCapacity() const
 
 void USCStackComponent::SetFillLevel(float InFillLevel)
 {
-    if (!IsValid(StackHISM) || SlotStatuses.IsEmpty())
-    {
-        UE_LOG(LogSCStack, Warning, TEXT("USCStackComponent on '%s': SetFillLevel called before "
-            "initialization. Ensure BeginPlay has run."), *GetOwner()->GetName());
-        return;
-    }
-
-    float NewClampedLevel = FMath::Clamp(InFillLevel, 0.f, 1.f);
-    if (FMath::IsNearlyEqual(NewClampedLevel, FillLevel, KINDA_SMALL_NUMBER) && PendingFillTickets.IsEmpty())
-    {
-        // Already at this target and no pending fills, do nothing (protects against Event Tick spam)
-        return;
-    }
-
-    FillLevel = NewClampedLevel;
-
-    if (bEnableFillAnimation)
+    if (!FMath::IsFinite(InFillLevel) || bShuttingDown)
     {
         return;
     }
-
-    const int32 TargetCount    = FMath::RoundToInt(FillLevel * static_cast<float>(GetTotalCapacity()));
-    const int32 CurrentFilled  = GetFilledSlotCount();
-
+    FillLevel = FMath::Clamp(InFillLevel, 0.f, 1.f);
+    if (!bRuntimeInitialized || !IsValid(StackHISM))
+    {
+        return;
+    }
+    LastAppliedFillLevel = FillLevel;
+    const int32 Target = FMath::RoundToInt(static_cast<double>(FillLevel) * SlotStatuses.Num());
+    // Repeated requests compare occupancy, not the last requested value (slots may have been extracted).
+    if (Target == TicketToIndex.Num())
+    {
+        return;
+    }
     CancelPendingFill();
-
-    if (TargetCount > CurrentFilled)
+    int32 Occupied = TicketToIndex.Num();
+    if (Occupied > Target)
     {
-        int32 SlotsNeeded = TargetCount - CurrentFilled;
-
-        for (int32 i = 0; i < SlotStatuses.Num() && SlotsNeeded > 0; ++i)
+        for (int32 Index = SlotStatuses.Num() - 1; Index >= 0 && Occupied > Target; --Index)
         {
-            if (SlotStatuses[i].Status == ESCSlotStatus::Free)
+            const FSCSlotData& Slot = SlotStatuses[Index];
+            if (Slot.Status == ESCSlotStatus::Filled && !ConvertingTickets.Contains(Slot.TicketID))
             {
-                SlotStatuses[i].Status = ESCSlotStatus::Reserved;
-                SlotStatuses[i].TicketID = NextTicketID++;
-                PendingFillTickets.Enqueue(SlotStatuses[i].TicketID);
-                --SlotsNeeded;
+                FreeSlot(Index);
+                --Occupied;
             }
-        }
-
-        if (!PendingFillTickets.IsEmpty())
-        {
-            ProcessNextPendingSlot();
         }
     }
-    else if (TargetCount < CurrentFilled)
+    else
     {
-        int32 SlotsToRelease = CurrentFilled - TargetCount;
-
-        for (int32 i = SlotStatuses.Num() - 1; i >= 0 && SlotsToRelease > 0; --i)
+        for (; Occupied < Target; ++Occupied)
         {
-            if (SlotStatuses[i].Status == ESCSlotStatus::Filled)
+            const int32 Ticket = RequestSlot();
+            if (Ticket == INDEX_NONE)
             {
-                SlotStatuses[i].Status = ESCSlotStatus::Free;
-                SlotStatuses[i].TicketID = INDEX_NONE;
-                FTransform HiddenTransform = CalculateDeformedTransform(CalculateSlotGridTransform(i));
-                HiddenTransform.SetScale3D(FVector(0.0001f));
-                StackHISM->UpdateInstanceTransform(i, HiddenTransform, false, false);
-                --SlotsToRelease;
+                break;
             }
+            PendingFillTickets.Enqueue(Ticket);
         }
-        StackHISM->MarkRenderStateDirty();
+        ProcessNextPendingSlot();
     }
 }
 
 void USCStackComponent::ProcessNextPendingSlot()
 {
-    int32 SlotID = INDEX_NONE;
-    if (!PendingFillTickets.Dequeue(SlotID))
+    const uint64 Revision = FillRevision;
+    int32 Ticket = INDEX_NONE;
+    while (!bShuttingDown && PendingFillTickets.Dequeue(Ticket))
     {
-        return;
-    }
-
-    StartSlotAnimation(SlotID);
-
-    if (!PendingFillTickets.IsEmpty())
-    {
-        UWorld* World = GetWorld();
-        if (IsValid(World) && FillStaggerDelay > 0.f)
+        StartSlotAnimation(FindIndexByTicket(Ticket));
+        if (!IsValid(this) || bShuttingDown || Revision != FillRevision)
         {
-            FTimerDelegate Delegate;
-            Delegate.BindUObject(this, &USCStackComponent::ProcessNextPendingSlot);
-            World->GetTimerManager().SetTimer(FillStaggerTimerHandle, Delegate, FillStaggerDelay, false);
+            return;
         }
-        else
+        if (PendingFillTickets.IsEmpty())
         {
-            ProcessNextPendingSlot();
+            return;
+        }
+        if (FMath::IsFinite(FillStaggerDelay) && FillStaggerDelay > 0.f)
+        {
+            if (UWorld* World = GetWorld())
+            {
+                World->GetTimerManager().SetTimer(FillStaggerTimerHandle, this,
+                                                  &USCStackComponent::ProcessNextPendingSlot, FillStaggerDelay, false);
+            }
+            return;
         }
     }
 }
 
 void USCStackComponent::CancelPendingFill()
 {
-    UWorld* World = GetWorld();
-    if (IsValid(World))
+    ++FillRevision;
+    if (UWorld* World = GetWorld())
     {
         World->GetTimerManager().ClearTimer(FillStaggerTimerHandle);
     }
-
-    int32 TicketID = INDEX_NONE;
-    while (PendingFillTickets.Dequeue(TicketID))
+    int32 Ticket = INDEX_NONE;
+    while (PendingFillTickets.Dequeue(Ticket))
     {
-        int32 SlotID = FindIndexByTicket(TicketID);
-        if (SlotID != INDEX_NONE && SlotStatuses[SlotID].Status == ESCSlotStatus::Reserved)
+        const int32 Index = FindIndexByTicket(Ticket);
+        if (Index != INDEX_NONE && SlotStatuses[Index].Status == ESCSlotStatus::Reserved)
         {
-            SlotStatuses[SlotID].Status = ESCSlotStatus::Free;
-            SlotStatuses[SlotID].TicketID = INDEX_NONE;
+            FreeSlot(Index);
         }
     }
 }
@@ -1265,78 +1166,84 @@ void USCStackComponent::CancelPendingFill()
 // Animation
 // ---------------------------------------------------------------------------
 
-void USCStackComponent::StartSlotAnimation(int32 SlotID)
+void USCStackComponent::StartSlotAnimation(int32 SlotIndex)
 {
-    if (!SlotStatuses.IsValidIndex(SlotID) || SlotStatuses[SlotID].Status != ESCSlotStatus::Reserved)
-    {
-        return;
-    }
-
-    SlotStatuses[SlotID].Status = ESCSlotStatus::Filled;
-
     UWorld* World = GetWorld();
-    if (!ensure(IsValid(World)))
+    if (bShuttingDown || !IsValid(World) || !SlotStatuses.IsValidIndex(SlotIndex) ||
+        SlotStatuses[SlotIndex].Status != ESCSlotStatus::Reserved)
     {
         return;
     }
-
-    FSCSlotAnimState& AnimState = ActiveAnimations.FindOrAdd(SlotID);
-    AnimState.Progress = 0.0f;
-
-    FTimerDelegate Delegate;
-    Delegate.BindUObject(this, &USCStackComponent::TickSlotAnimation, SlotID);
-
-    World->GetTimerManager().SetTimer(
-        AnimState.TimerHandle,
-        Delegate,
-        AnimationTickInterval,
-        true);
+    FSCSlotData& Slot = SlotStatuses[SlotIndex];
+    Slot.Status = ESCSlotStatus::Filled;
+    FSCSlotAnimState& Animation = ActiveAnimations.FindOrAdd(Slot.TicketID);
+    Animation.Progress = 0.f;
+    Animation.LastUpdateTime = World->GetTimeSeconds();
+    if (!World->GetTimerManager().IsTimerActive(AnimationTimerHandle))
+    {
+        World->GetTimerManager().SetTimer(AnimationTimerHandle, this, &USCStackComponent::TickSlotAnimations,
+                                          AnimationTickInterval, true);
+    }
 }
 
-void USCStackComponent::TickSlotAnimation(int32 SlotID)
+void USCStackComponent::TickSlotAnimations()
 {
-    FSCSlotAnimState* AnimState = ActiveAnimations.Find(SlotID);
-    if (AnimState == nullptr)
+    UWorld* World = GetWorld();
+    if (!IsValid(World) || !IsValid(StackHISM) || bShuttingDown)
     {
         return;
     }
-
-    AnimState->Progress = FMath::Clamp(
-        AnimState->Progress + (AnimationTickInterval / ScaleAnimationDuration),
-        0.0f, 1.0f);
-
-    const FVector CurrentScale = FMath::Lerp(FVector(0.0001f), TargetElementScale, AnimState->Progress);
-
-    FTransform SlotTransform = CalculateDeformedTransform(CalculateSlotGridTransform(SlotID));
-    SlotTransform.SetScale3D(CurrentScale);
-    StackHISM->UpdateInstanceTransform(SlotID, SlotTransform, false, true);
-
-    if (AnimState->Progress >= 1.0f)
+    const double Now = World->GetTimeSeconds();
+    TArray<int32> Completed;
+    for (auto It = ActiveAnimations.CreateIterator(); It; ++It)
     {
-        FTimerHandle HandleToClose = AnimState->TimerHandle;
-        ActiveAnimations.Remove(SlotID);
-
-        UWorld* World = GetWorld();
-        if (IsValid(World))
+        const int32 Index = FindIndexByTicket(It.Key());
+        if (Index == INDEX_NONE || SlotStatuses[Index].Status != ESCSlotStatus::Filled)
         {
-            World->GetTimerManager().ClearTimer(HandleToClose);
+            It.RemoveCurrent();
+            continue;
         }
-
-        OnSlotFilled(SlotID);
+        FSCSlotAnimState& Animation = It.Value();
+        const double Elapsed = FMath::Max(0.0, Now - Animation.LastUpdateTime);
+        Animation.LastUpdateTime = Now;
+        Animation.Progress =
+            FMath::IsFinite(ScaleAnimationDuration) && ScaleAnimationDuration > 0.f
+                ? FMath::Min(1.f, Animation.Progress + static_cast<float>(Elapsed / ScaleAnimationDuration))
+                : 1.f;
+        FTransform Transform = CalculateDeformedTransform(CalculateSlotGridTransform(Index));
+        Transform.SetScale3D(FMath::Lerp(FVector(0.0001f), Transform.GetScale3D(), Animation.Progress));
+        StackHISM->UpdateInstanceTransform(Index, Transform, false, false);
+        if (Animation.Progress >= 1.f)
+        {
+            Completed.Add(It.Key());
+            It.RemoveCurrent();
+        }
+    }
+    StackHISM->MarkRenderStateDirty();
+    if (ActiveAnimations.IsEmpty())
+    {
+        ClearAllAnimations();
+    }
+    // No map references survive user callbacks; earlier completions may extract later ones.
+    for (int32 Ticket : Completed)
+    {
+        if (!IsValid(this) || bShuttingDown)
+        {
+            return;
+        }
+        const int32 Index = FindIndexByTicket(Ticket);
+        if (Index != INDEX_NONE && SlotStatuses[Index].Status == ESCSlotStatus::Filled)
+        {
+            OnSlotFilled(Ticket);
+        }
     }
 }
 
 void USCStackComponent::ClearAllAnimations()
 {
-    UWorld* World = GetWorld();
-
-    for (auto& Pair : ActiveAnimations)
+    if (UWorld* World = GetWorld())
     {
-        if (IsValid(World))
-        {
-            World->GetTimerManager().ClearTimer(Pair.Value.TimerHandle);
-        }
+        World->GetTimerManager().ClearTimer(AnimationTimerHandle);
     }
-
     ActiveAnimations.Empty();
 }

@@ -29,6 +29,10 @@ class SIMPLECOMP_API USCCollectorComponent : public USceneComponent
 public:
     USCCollectorComponent();
 
+    /** Applies shape edits immediately. Direct runtime edits are also checked every 0.1 seconds. */
+    UFUNCTION(BlueprintCallable, Category = "SimpleComp|Collector")
+    void RefreshSettings();
+
     // -----------------------------------------------------------------------
     // Events
     // -----------------------------------------------------------------------
@@ -84,6 +88,7 @@ protected:
     virtual void OnRegister() override;
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
 
 #if WITH_EDITOR
     virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -91,6 +96,18 @@ protected:
 
 private:
     void UpdateVolumeState();
+    void Cleanup();
+    struct FCollection
+    {
+        TWeakObjectPtr<USCStackComponent> Stack;
+        int32 Ticket = INDEX_NONE;
+    };
+    TMap<TWeakObjectPtr<AActor>, FCollection> Collections;
+    FTimerHandle SettingsTimer;
+    ESCCollectorShape AppliedShape = ESCCollectorShape::Sphere;
+    bool bRuntimeActive = false;
+    bool bRefreshInitialOverlaps = false;
+    bool bRefreshingSettings = false;
     UFUNCTION()
     void OnTriggerBeginOverlap(
         UPrimitiveComponent* OverlappedComponent,

@@ -25,7 +25,8 @@ public:
      * Called by USCCollectorComponent to initiate the resource's flight toward the stack.
      * Implement the flight logic (e.g., via Timeline) inside the resource Actor.
      * When the flight completes, the implementor must call TargetStack->ConfirmArrival(SlotID)
-     * and then destroy itself.
+     * and then destroy itself. If flight is cancelled, call ReleaseSlot(SlotID).
+     * SlotID is a stable ticket, not a physical instance index. Check TargetStack validity before use.
      *
      * @param TargetStack  The Stack Component the resource is flying to.
      * @param SlotID       The reserved slot ID that this resource must confirm upon arrival.

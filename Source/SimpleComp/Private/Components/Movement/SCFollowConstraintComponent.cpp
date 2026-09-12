@@ -30,65 +30,70 @@ void USCFollowConstraintComponent::TickComponent(float DeltaTime, ELevelTick Tic
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
     AActor* Owner = GetOwner();
-    if (!FollowTarget || !ensure(Owner))
+    if (!IsValid(FollowTarget) || !IsValid(Owner) || !FMath::IsFinite(DeltaTime) || DeltaTime <= 0.f)
     {
         return;
     }
-
-    const FVector TargetLoc = FollowTarget->GetActorLocation();
-    const FVector CurrentLoc = Owner->GetActorLocation();
-
-    FVector Direction = CurrentLoc - TargetLoc;
-
-    FVector ClampedDir;
-    ClampedDir.X = (XAxisSettings.Mode == ESCAxisMode::Locked) ? 0.0f : Direction.X;
-    ClampedDir.Y = (YAxisSettings.Mode == ESCAxisMode::Locked) ? 0.0f : Direction.Y;
-    ClampedDir.Z = (ZAxisSettings.Mode == ESCAxisMode::Locked) ? 0.0f : Direction.Z;
-
-    const float CurrentDistance = ClampedDir.Size();
-
-    if (CurrentDistance > RopeLength)
+    const FVector TargetLocation = FollowTarget->GetActorLocation();
+    const FVector CurrentLocation = Owner->GetActorLocation();
+    FVector Offset = CurrentLocation - TargetLocation;
+    if (XAxisSettings.Mode == ESCAxisMode::Locked)
     {
-        FVector NewRelativeLoc = ClampedDir.GetSafeNormal() * RopeLength;
-
-        FVector NewLocation;
-        NewLocation.X = (XAxisSettings.Mode == ESCAxisMode::Locked) ? CurrentLoc.X : TargetLoc.X + NewRelativeLoc.X;
-        NewLocation.Y = (YAxisSettings.Mode == ESCAxisMode::Locked) ? CurrentLoc.Y : TargetLoc.Y + NewRelativeLoc.Y;
-        NewLocation.Z = (ZAxisSettings.Mode == ESCAxisMode::Locked) ? CurrentLoc.Z : TargetLoc.Z + NewRelativeLoc.Z;
-
+        Offset.X = 0.0;
+    }
+    if (YAxisSettings.Mode == ESCAxisMode::Locked)
+    {
+        Offset.Y = 0.0;
+    }
+    if (ZAxisSettings.Mode == ESCAxisMode::Locked)
+    {
+        Offset.Z = 0.0;
+    }
+    const double SafeLength = FMath::IsFinite(RopeLength) ? FMath::Max(0.f, RopeLength) : 0.f;
+    Offset = Offset.GetClampedToMaxSize(SafeLength);
+    // Location limits constrain world-axis offsets from the target. Explicit axis limits take
+    // precedence if the configured interval has no intersection with the rope sphere.
+    const FVector NewLocation(
+        TargetLocation.X + ProcessAxis(CurrentLocation.X - TargetLocation.X, Offset.X, XAxisSettings),
+        TargetLocation.Y + ProcessAxis(CurrentLocation.Y - TargetLocation.Y, Offset.Y, YAxisSettings),
+        TargetLocation.Z + ProcessAxis(CurrentLocation.Z - TargetLocation.Z, Offset.Z, ZAxisSettings));
+    if (!NewLocation.Equals(CurrentLocation))
+    {
         Owner->SetActorLocation(NewLocation);
-
-        FVector MoveDelta = NewLocation - LastLocation;
-
-        if (MoveDelta.SizeSquared() > KINDA_SMALL_NUMBER)
+        if (!IsValid(this) || !IsValid(Owner))
         {
-            FQuat TargetQuat = MoveDelta.ToOrientationQuat();
-            FRotator TargetRotator = TargetQuat.Rotator();
-
-            FRotator FinalRotator;
-            FinalRotator.Pitch =
-                (PitchSettings.Mode == ESCAxisMode::Locked) ? Owner->GetActorRotation().Pitch : TargetRotator.Pitch;
-            FinalRotator.Yaw =
-                (YawSettings.Mode == ESCAxisMode::Locked) ? Owner->GetActorRotation().Yaw : TargetRotator.Yaw;
-            FinalRotator.Roll =
-                (RollSettings.Mode == ESCAxisMode::Locked) ? Owner->GetActorRotation().Roll : TargetRotator.Roll;
-
-            if (PitchSettings.Mode == ESCAxisMode::Limited)
-                FinalRotator.Pitch = FMath::Clamp(FinalRotator.Pitch, PitchSettings.Min, PitchSettings.Max);
-            if (YawSettings.Mode == ESCAxisMode::Limited)
-                FinalRotator.Yaw = FMath::Clamp(FinalRotator.Yaw, YawSettings.Min, YawSettings.Max);
-            if (RollSettings.Mode == ESCAxisMode::Limited)
-                FinalRotator.Roll = FMath::Clamp(FinalRotator.Roll, RollSettings.Min, RollSettings.Max);
-
-            FQuat FinalQuat = FinalRotator.Quaternion();
-            FQuat CurrentQuat = Owner->GetActorQuat();
-
-            float LerpAlpha = FMath::Clamp(DeltaTime * RotationSmoothness, 0.0f, 1.0f);
-            FQuat NewQuat = FQuat::Slerp(CurrentQuat, FinalQuat, LerpAlpha);
-
-            Owner->SetActorRotation(NewQuat);
+            return;
+        }
+        const FVector Movement = Owner->GetActorLocation() - LastLocation;
+        if (!Movement.IsNearlyZero())
+        {
+            const FRotator Current = Owner->GetActorRotation();
+            const FRotator Target = Movement.Rotation();
+            const FRotator Result(ProcessAxis(Current.Pitch, Target.Pitch, PitchSettings),
+                                  ProcessAxis(Current.Yaw, Target.Yaw, YawSettings),
+                                  ProcessAxis(Current.Roll, Target.Roll, RollSettings));
+            const float Alpha = !FMath::IsFinite(RotationSmoothness) || RotationSmoothness <= 0.f
+                                    ? 1.f
+                                    : FMath::Clamp(DeltaTime * RotationSmoothness, 0.f, 1.f);
+            Owner->SetActorRotation(FQuat::Slerp(Current.Quaternion(), Result.Quaternion(), Alpha));
         }
     }
+    if (IsValid(Owner))
+    {
+        LastLocation = Owner->GetActorLocation();
+    }
+}
 
-    LastLocation = Owner->GetActorLocation();
+double USCFollowConstraintComponent::ProcessAxis(double CurrentVal, double TargetVal, const FSCAxisSettings& Settings)
+{
+    if (Settings.Mode == ESCAxisMode::Locked)
+    {
+        return CurrentVal;
+    }
+    if (Settings.Mode == ESCAxisMode::Limited)
+    {
+        return FMath::Clamp(TargetVal, static_cast<double>(FMath::Min(Settings.Min, Settings.Max)),
+                            static_cast<double>(FMath::Max(Settings.Min, Settings.Max)));
+    }
+    return TargetVal;
 }

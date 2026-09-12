@@ -2,13 +2,14 @@
 
 TArray<FName> USCAnimSequence::GetNotifyNames() const
 {
-    TSet<FName> UniqueNames;
+    TArray<FName> UniqueNames;
+    UniqueNames.Reserve(Notifies.Num());
     for (const FSCAnimNotify& Notify : Notifies)
     {
         if (!Notify.NotifyName.IsNone())
         {
-            UniqueNames.Add(Notify.NotifyName);
+            UniqueNames.AddUnique(Notify.NotifyName);
         }
     }
-    return UniqueNames.Array();
+    return UniqueNames;
 }

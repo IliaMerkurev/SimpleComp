@@ -6,6 +6,8 @@ Intermediate/
 Saved/
 DerivedDataCache/
 Build/           # UE sometimes creates extra build folders
+# Local coding skills are development tooling, not distributed plugin content.
+.agents/
 .agent/
 
 # IDE / Editor Files

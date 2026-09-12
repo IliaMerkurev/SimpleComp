@@ -22,7 +22,7 @@ void USCSphereRollComponent::BeginPlay()
 void USCSphereRollComponent::ReturnToInitialRotation(const float Speed, const bool bSetRotationActive)
 {
     bIsReturningToInitialRotation = true;
-    ReturnSpeed = Speed;
+    ReturnSpeed = FMath::IsFinite(Speed) ? FMath::Max(0.f, Speed) : 0.f;
     bIsRotationActive = bSetRotationActive;
 }
 
@@ -31,15 +31,18 @@ void USCSphereRollComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    if (DeltaTime <= 0.0f)
+    if (!FMath::IsFinite(DeltaTime) || DeltaTime <= 0.0f)
+    {
         return;
+    }
 
+    CurrentRotationQuat = GetRelativeRotation().Quaternion();
     const FVector CurrentLocation = GetComponentLocation();
     const FVector MoveDelta = CurrentLocation - LastLocation;
 
     if (!MoveDelta.IsNearlyZero(0.01f))
     {
-        if (bIsRotationActive)
+        if (bIsRotationActive && FMath::IsFinite(SphereRadius) && SphereRadius > UE_SMALL_NUMBER)
         {
             bIsReturningToInitialRotation = false;
 
@@ -52,14 +55,19 @@ void USCSphereRollComponent::TickComponent(float DeltaTime, ELevelTick TickType,
             {
                 RotationAxis.Normalize();
 
-                float RotationAngle = DistanceMoved / SphereRadius;
+                // The rolling axis is computed in world space; the accumulated quaternion is relative.
+                if (GetAttachParent() && !IsUsingAbsoluteRotation())
+                {
+                    RotationAxis = GetAttachParent()->GetComponentQuat().UnrotateVector(RotationAxis);
+                }
+                float RotationAngle = FMath::Fmod(static_cast<double>(DistanceMoved) / SphereRadius, 2.0 * PI);
                 if (bInvertRotation)
                     RotationAngle *= -1.0f;
 
                 FQuat DeltaQuat = FQuat(RotationAxis, RotationAngle);
 
                 // Accumulate rotation (order matters: Delta * Current for world-axis aligned rotation)
-                CurrentRotationQuat = DeltaQuat * CurrentRotationQuat;
+                CurrentRotationQuat = (DeltaQuat * CurrentRotationQuat).GetNormalized();
 
                 SetRelativeRotation(CurrentRotationQuat);
             }

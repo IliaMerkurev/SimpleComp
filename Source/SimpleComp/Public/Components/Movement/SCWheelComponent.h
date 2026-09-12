@@ -24,7 +24,7 @@ UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayNa
         virtual void TickComponent(float DeltaTime, ELevelTick TickType,
             FActorComponentTickFunction* ThisTickFunction) override;
 
-        /** Radius of the wheel in centimeters. */
+        /** World-space rolling radius in centimeters. Non-positive or non-finite values suspend rolling. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Wheel Settings", Interp)
         float WheelRadius = 30.0f;
 
@@ -55,4 +55,6 @@ UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayNa
         FVector LastLocation;
         float CurrentRollRotation = 0.0f;
         float CurrentSteerYaw = 0.0f;
+        float TargetSteerYaw = 0.0f;
+        FQuat InitialRotation = FQuat::Identity;
     };
