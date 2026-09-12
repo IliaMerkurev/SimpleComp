@@ -10,6 +10,12 @@ Build/           # UE sometimes creates extra build folders
 .agents/
 .agent/
 
+# Local engineering instructions and implementation tracking
+/AGENTS.md
+/PROJECT.md
+/STATUS.md
+/MANUAL_ACCEPTANCE.md
+
 # IDE / Editor Files
 .vs/
 .idea/

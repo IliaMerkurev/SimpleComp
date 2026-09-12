@@ -51,13 +51,13 @@ Stack scale animation now shares one timer, tickets use a lookup map, and redund
 
 `OnSlotFilled` now returns the promised stable ticket; review graphs that compensated for its previous physical-index behavior. `OnActorSpawned.SlotID` remains a physical index. Existing animation nodes may need reconstruction and Blueprint recompilation after the numeric-pin corrections.
 
-Explicit animation seeks update the pose without firing notifies or Finished. Follow Constraint Limited locations are target-relative offsets in world axes, and zero rotation smoothing is instant. Stack resize rejects capacities below current occupancy; failed conversion retains the resource. Idle raw Stack/Collector settings synchronize within 0.1 seconds, or immediately through `RefreshSettings`. See [STATUS.md](STATUS.md) for further compatibility notes and known limitations.
+Explicit animation seeks update the pose without firing notifies or Finished. Follow Constraint Limited locations are target-relative offsets in world axes, and zero rotation smoothing is instant. Stack resize rejects capacities below current occupancy; failed conversion retains the resource. Idle raw Stack/Collector settings synchronize within 0.1 seconds, or immediately through `RefreshSettings`. See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed behavior contracts and limitations.
 
 ### Validation
 
 The owner reports that basic functional checks passed and has authorized integration into `master`. Production use and the detailed acceptance scenarios remain pending. Agent-run compilation and tests: **Not run — explicitly deferred by owner.** This update does not claim production validation or measured performance gains.
 
-The [manual acceptance checklist](MANUAL_ACCEPTANCE.md) covers scene checks and later dedicated validation. [PROJECT.md](PROJECT.md) records the product requirements.
+When upgrading, check existing Blueprint nodes, repeated stack filling and extraction, animation notifies and completion chaining, and Local/World behavior under transformed parents in your own scenes.
 
 ## License
 
