@@ -9,6 +9,7 @@ class USCAnimSequence;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FSCAnimFinishedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSCAnimNotifySignature, FName, NotifyName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSCAnimUpdateSignature, float, CurrentTime, float, NormalizedTime);
+DECLARE_MULTICAST_DELEGATE(FSCPlaybackInvalidatedSignature);
 
 UCLASS(ClassGroup = (SimpleComp),
     meta = (BlueprintSpawnableComponent, DisplayName = "Simple Curve Animation Component"))
@@ -23,6 +24,14 @@ UCLASS(ClassGroup = (SimpleComp),
             FActorComponentTickFunction* ThisTickFunction) override;
 
         virtual void BeginPlay() override;
+        virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+        virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
+
+        /** Native lifecycle notification for playback proxies; not a completion event. */
+        FSCPlaybackInvalidatedSignature OnPlaybackInvalidated;
+
+        /** Identifies the current playback operation for callback reentrancy checks. */
+        uint64 GetPlaybackRevision() const { return PlaybackRevision; }
 
         /** The animation sequence to play. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
@@ -86,7 +95,7 @@ UCLASS(ClassGroup = (SimpleComp),
         UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
         void PlayFromStart();
 
-        /** Stops playback / resets state. */
+        /** Stops playback while retaining the current position and pose. */
         UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
         void Stop();
 
@@ -113,7 +122,7 @@ UCLASS(ClassGroup = (SimpleComp),
             return CurrentTime;
         }
 
-        /** Jumps to specific playback position. */
+        /** Evaluates a playback position in seconds, even while paused. Does not dispatch notifies or Finished. */
         UFUNCTION(BlueprintCallable, Category = "SimpleComp|Animation")
         void SetPlaybackPosition(float NewTime);
 
@@ -121,26 +130,29 @@ UCLASS(ClassGroup = (SimpleComp),
         UFUNCTION(BlueprintPure, Category = "SimpleComp|Animation")
         bool IsPlaying() const
         {
-            return bIsPlaying;
+            return bIsPlaying && !bIsPaused;
         }
 
     private:
         void UpdateAnimation(float DeltaTime);
-        void ApplyTransform();
         void ApplyTransform(float SampleTime);
-        void ProcessNotifies(float OldTime, float NewTime);
+        bool ProcessNotifies(float OldTime, float NewTime, bool bIncludeStart, uint64 Revision);
+        void CaptureInitialTransforms();
+        void EvaluatePosition();
         float GetEffectiveDuration() const;
 
         bool bIsPlaying = false;
         bool bIsPaused = false;
-        bool bFinished = false;
         float PlaybackCurrentTime = 0.0f;
+        float LastPlaybackDuration = 1.0f;
+        uint64 PlaybackRevision = 0;
+        bool bIncludeBoundaryNotify = false;
+        bool bHasInitialTransforms = false;
+        bool bShuttingDown = false;
+        FTransform InitialLocalTransform;
+        FTransform InitialWorldTransform;
 
-        FVector InitialLocation;
-        FRotator InitialRotation;
-        FVector InitialScale;
 
         bool bReversePlayback = false;
 
-        TSet<int32> FiredNotifyIndices;
     };

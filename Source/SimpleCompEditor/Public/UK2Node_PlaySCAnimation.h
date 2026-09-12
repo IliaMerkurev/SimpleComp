@@ -67,6 +67,7 @@ UCLASS(meta = (Keywords = "Play SC Animation Simple Animation", DisplayName = "P
         static const FName PN_CurrentTime;
         static const FName PN_NormalizedTime;
 
+        FName GetNotifyPinName(FName NotifyName) const;
         void CreateNotifyPins();
         void RemoveNotifyPins();
     };

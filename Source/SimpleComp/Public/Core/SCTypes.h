@@ -52,6 +52,7 @@ UENUM(BlueprintType)
                 ScaleX UMETA(DisplayName = "Scale X"),
                 ScaleY UMETA(DisplayName = "Scale Y"),
                 ScaleZ UMETA(DisplayName = "Scale Z"),
+                /** Reserved for compatibility; the transform evaluator does not apply this track. */
                 CustomFloat UMETA(DisplayName = "Custom Float"),
                 /** Uses a CurveTable asset. Rows must be named X, Y, Z. */
                 TableLocation UMETA(DisplayName = "Table Location"),

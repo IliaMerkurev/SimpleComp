@@ -9,12 +9,8 @@
 #include "K2Node_AssignmentStatement.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_CustomEvent.h"
-#include "K2Node_ExecutionSequence.h"
-#include "K2Node_Self.h"
 #include "K2Node_SwitchName.h"
 #include "K2Node_TemporaryVariable.h"
-#include "Kismet/KismetMathLibrary.h"
-#include "Kismet/KismetSystemLibrary.h"
 #include "KismetCompiler.h"
 #include "UObject/UnrealType.h"
 
@@ -67,7 +63,8 @@ void UK2Node_PlaySCAnimation::AllocateDefaultPins()
     K2Schema->ConstructBasicPinTooltip(*SequencePin,
         NSLOCTEXT("K2Node", "SequenceTooltip", "Optional sequence override"), SequencePin->PinToolTip);
 
-    UEdGraphPin* DurationPin = CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Real, PN_Duration);
+    UEdGraphPin* DurationPin =
+        CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Double, PN_Duration);
     K2Schema->ConstructBasicPinTooltip(*DurationPin,
         NSLOCTEXT("K2Node", "DurationTooltip", "Optional duration override (0 = use default)"),
         DurationPin->PinToolTip);
@@ -82,10 +79,23 @@ void UK2Node_PlaySCAnimation::AllocateDefaultPins()
     CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, PN_Update);
     CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, PN_Finished);
 
-    UEdGraphPin* CurrentTimePin = CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Real, PN_CurrentTime);
-    UEdGraphPin* NormalizedTimePin = CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Real, PN_NormalizedTime);
+    CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Double, PN_CurrentTime);
+    CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Double, PN_NormalizedTime);
 
     CreateNotifyPins();
+}
+
+FName UK2Node_PlaySCAnimation::GetNotifyPinName(FName NotifyName) const
+{
+    const TArray<FName> Reserved = {
+        PN_Play,        PN_PlayFromStart, PN_Stop,     PN_Pause, PN_Resume, PN_ReverseFromEnd, PN_ReverseFromCurrent,
+        PN_Component,   PN_Sequence,      PN_Duration, PN_Loop,  PN_Then,   PN_Update,         PN_Finished,
+        PN_CurrentTime, PN_NormalizedTime};
+    if (Reserved.Contains(NotifyName) || NotifyName.ToString().StartsWith(TEXT("SCNotify:")))
+    {
+        return FName(*(TEXT("SCNotify:") + NotifyName.ToString()));
+    }
+    return NotifyName;
 }
 
 void UK2Node_PlaySCAnimation::CreateNotifyPins()
@@ -98,7 +108,7 @@ void UK2Node_PlaySCAnimation::CreateNotifyPins()
     {
         if (!NotifyName.IsNone())
         {
-            UEdGraphPin* NotifyPin = CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, NotifyName);
+            UEdGraphPin* NotifyPin = CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, GetNotifyPinName(NotifyName));
             NotifyPin->PinFriendlyName = FText::FromName(NotifyName);
         }
     }
@@ -181,6 +191,10 @@ void UK2Node_PlaySCAnimation::PostEditChangeProperty(FPropertyChangedEvent& Prop
 
     if (PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_PlaySCAnimation, AnimSequence))
     {
+        if (UEdGraphPin* SequencePin = FindPin(PN_Sequence))
+        {
+            SequencePin->DefaultObject = AnimSequence;
+        }
         ReconstructNode();
     }
 }
@@ -202,7 +216,37 @@ void UK2Node_PlaySCAnimation::ExpandNode(class FKismetCompilerContext& CompilerC
 {
     Super::ExpandNode(CompilerContext, SourceGraph);
 
-    const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
+    auto MakeTimeVariable = [&](const FName& OutputName)
+    {
+        UK2Node_TemporaryVariable* Variable =
+            CompilerContext.SpawnIntermediateNode<UK2Node_TemporaryVariable>(this, SourceGraph);
+        Variable->VariableType.PinCategory = UEdGraphSchema_K2::PC_Real;
+        Variable->VariableType.PinSubCategory = UEdGraphSchema_K2::PC_Double;
+        Variable->AllocateDefaultPins();
+        CompilerContext.MovePinLinksToIntermediate(*FindPinChecked(OutputName), *Variable->GetVariablePin());
+        return Variable->GetVariablePin();
+    };
+    UEdGraphPin* TimeVariable = MakeTimeVariable(PN_CurrentTime);
+    UEdGraphPin* NormalizedVariable = MakeTimeVariable(PN_NormalizedTime);
+    auto StoreOutputTimes = [&](UK2Node_CustomEvent* Event)
+    {
+        UEdGraphPin* Exec = Event->FindPinChecked(UEdGraphSchema_K2::PN_Then);
+        for (const TPair<FName, UEdGraphPin*>& Value :
+             {TPair<FName, UEdGraphPin*>(TEXT("CurrentTime"), TimeVariable),
+              TPair<FName, UEdGraphPin*>(TEXT("NormalizedTime"), NormalizedVariable)})
+        {
+            UK2Node_AssignmentStatement* Assignment =
+                CompilerContext.SpawnIntermediateNode<UK2Node_AssignmentStatement>(this, SourceGraph);
+            Assignment->AllocateDefaultPins();
+            Assignment->GetVariablePin()->PinType = Value.Value->PinType;
+            Assignment->GetValuePin()->PinType = Value.Value->PinType;
+            Assignment->GetVariablePin()->MakeLinkTo(Value.Value);
+            Assignment->GetValuePin()->MakeLinkTo(Event->FindPinChecked(Value.Key));
+            Exec->MakeLinkTo(Assignment->GetExecPin());
+            Exec = Assignment->GetThenPin();
+        }
+        return Exec;
+    };
 
     auto CopyInput = [&](const FName& NodePinName, UEdGraphNode* DestNode, const FName& DestPinName)
     {
@@ -214,22 +258,10 @@ void UK2Node_PlaySCAnimation::ExpandNode(class FKismetCompilerContext& CompilerC
             DestPin->DefaultObject = NodePin->DefaultObject;
             DestPin->DefaultTextValue = NodePin->DefaultTextValue;
 
-            DestPin->DefaultTextValue = NodePin->DefaultTextValue;
-
             if (!NodePin->DefaultObject)
             {
                 DestPin->DefaultValue = NodePin->DefaultValue;
             }
-        }
-    };
-
-    auto MoveOutput = [&](const FName& NodePinName, UEdGraphNode* SourceNode, const FName& SourcePinName)
-    {
-        UEdGraphPin* NodePin = FindPin(NodePinName);
-        UEdGraphPin* SourcePin = SourceNode ? SourceNode->FindPin(SourcePinName) : nullptr;
-        if (NodePin && SourcePin)
-        {
-            CompilerContext.MovePinLinksToIntermediate(*NodePin, *SourcePin);
         }
     };
 
@@ -290,9 +322,7 @@ void UK2Node_PlaySCAnimation::ExpandNode(class FKismetCompilerContext& CompilerC
 
         if (!Path.bIsControl)
         {
-            auto SetupDelegate = [&](const FName& DelegateName, const FName& NodeOutName,
-                                     const FName& ParamName = NAME_None, const FName& NodeParamName = NAME_None,
-                                     const FName& ParamName2 = NAME_None, const FName& NodeParamName2 = NAME_None)
+            auto SetupDelegate = [&](const FName& DelegateName, const FName& NodeOutName)
             {
                 UK2Node_AddDelegate* AddDel =
                     CompilerContext.SpawnIntermediateNode<UK2Node_AddDelegate>(this, SourceGraph);
@@ -325,22 +355,12 @@ void UK2Node_PlaySCAnimation::ExpandNode(class FKismetCompilerContext& CompilerC
                 LastNode->FindPin(UEdGraphSchema_K2::PN_Then)->MakeLinkTo(AddDel->GetExecPin());
                 LastNode = AddDel;
 
-                ConnectInternalOutputToUserOutput(Evt->FindPin(UEdGraphSchema_K2::PN_Then), NodeOutName);
-
-                if (!ParamName.IsNone() && !NodeParamName.IsNone())
-                {
-                    ConnectInternalOutputToUserOutput(Evt->FindPin(ParamName), NodeParamName);
-                }
-                if (!ParamName2.IsNone() && !NodeParamName2.IsNone())
-                {
-                    ConnectInternalOutputToUserOutput(Evt->FindPin(ParamName2), NodeParamName2);
-                }
+                ConnectInternalOutputToUserOutput(StoreOutputTimes(Evt), NodeOutName);
 
                 return Evt;
             };
 
-            SetupDelegate(TEXT("Update"), PN_Update, TEXT("CurrentTime"), PN_CurrentTime, TEXT("NormalizedTime"),
-                PN_NormalizedTime);
+            SetupDelegate(TEXT("Update"), PN_Update);
             SetupDelegate(TEXT("Finished"), PN_Finished);
 
             UK2Node_AddDelegate* AddDelNotify =
@@ -375,21 +395,19 @@ void UK2Node_PlaySCAnimation::ExpandNode(class FKismetCompilerContext& CompilerC
             {
                 UK2Node_SwitchName* Switch =
                     CompilerContext.SpawnIntermediateNode<UK2Node_SwitchName>(this, SourceGraph);
+                Switch->bHasDefaultPin = false;
+                Switch->PinNames = AnimSequence->GetNotifyNames();
                 Switch->AllocateDefaultPins();
-                EvtNotify->FindPin(UEdGraphSchema_K2::PN_Then)->MakeLinkTo(Switch->GetExecPin());
+                StoreOutputTimes(EvtNotify)->MakeLinkTo(Switch->GetExecPin());
                 if (UEdGraphPin* NamePin = EvtNotify->FindPin(TEXT("NotifyName")))
                 {
                     NamePin->MakeLinkTo(Switch->GetSelectionPin());
                 }
 
-                for (const FSCAnimNotify& Notify : AnimSequence->Notifies)
+                for (const FName& NotifyName : Switch->PinNames)
                 {
-                    Switch->AddPinToSwitchNode();
-                    UEdGraphPin* SwPin = Switch->Pins.Last();
-                    SwPin->PinName = Notify.NotifyName;
-                    SwPin->PinFriendlyName = FText::FromName(Notify.NotifyName);
-
-                    ConnectInternalOutputToUserOutput(SwPin, Notify.NotifyName);
+                    ConnectInternalOutputToUserOutput(Switch->FindPinChecked(NotifyName, EGPD_Output),
+                                                      GetNotifyPinName(NotifyName));
                 }
             }
 
@@ -458,7 +476,7 @@ void UK2Node_PlaySCAnimation::GetMenuActions(FBlueprintActionDatabaseRegistrar& 
 
 FText UK2Node_PlaySCAnimation::GetMenuCategory() const
 {
-    return NSLOCTEXT("K2Node", "PlaySCAnimation_Category", "Simple Comp|Animation");
+    return NSLOCTEXT("K2Node", "PlaySCAnimation_Category", "SimpleComp|Animation");
 }
 
 #undef LOCTEXT_NAMESPACE

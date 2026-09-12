@@ -21,6 +21,7 @@ UCLASS(BlueprintType, meta = (DisplayName = "Simple Animation Async Action"))
 
     public:
         virtual void Activate() override;
+        virtual void BeginDestroy() override;
 
         /** Internal factory for UK2Node */
         // Use double for Blueprint interface (UE5 "Real" / Green Pins)
@@ -83,12 +84,15 @@ UCLASS(BlueprintType, meta = (DisplayName = "Simple Animation Async Action"))
         void HandleNotify(FName NotifyName);
 
         void Cleanup();
+        void BindToPlayback();
+        bool IsPlaybackCurrent();
 
         UPROPERTY()
-        TObjectPtr<USCCurveAnimComponent> TargetComponent;
+        TWeakObjectPtr<USCCurveAnimComponent> TargetComponent;
 
         UPROPERTY()
         TObjectPtr<USCAnimSequence> TargetSequence;
 
-        float TargetDuration;
+        float TargetDuration = -1.0f;
+        bool bBound = false;
     };

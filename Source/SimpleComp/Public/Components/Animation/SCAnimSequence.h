@@ -17,7 +17,7 @@ USTRUCT(BlueprintType)
     {
         GENERATED_BODY()
 
-        /** The curve asset to sample from. Use for Float or Vector curve types. */
+        /** Float curve for a single-axis track. Vector curve assets are not evaluated. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Track")
         TObjectPtr<UCurveBase> CurveAsset = nullptr;
 
@@ -39,7 +39,7 @@ USTRUCT(BlueprintType)
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Track")
         float ScaleCurve = 1.0f;
 
-        /** Scale factor for vector curves. */
+        /** Per-axis scale factor for CurveTable tracks. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Track")
         FVector ScaleVector = FVector::OneVector;
     };
@@ -81,8 +81,7 @@ USTRUCT(BlueprintType)
                 UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation")
                 TArray<FSCAnimNotify> Notifies;
 
-                /** Default duration for this animation. If > 0, the curve playback will be
-                 * scaled to fit this time. */
+                /** Sequence sample-time extent in seconds. PlaybackDuration retimes this extent; non-positive values infer it from curve ranges. */
                 UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Animation",
                     meta = (ClampMin = "0.01"))
                 float DefaultDuration = 1.0f;
