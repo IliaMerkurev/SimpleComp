@@ -43,7 +43,7 @@ struct FSCSlotData
 struct FSCSlotAnimState
 {
     float        Progress    = 0.0f;
-    FTimerHandle TimerHandle;
+    double LastUpdateTime = 0.0;
 };
 
 // ---------------------------------------------------------------------------
@@ -146,6 +146,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
     int32 RequestSlot();
 
+    /** True while a reservation or filled resource still owns this ticket. */
+    UFUNCTION(BlueprintPure, Category = "SimpleComp|Stack")
+    bool HasTicket(int32 TicketID) const { return FindIndexByTicket(TicketID) != INDEX_NONE; }
+
     /**
      * Confirms that a resource has arrived at the given slot.
      * Marks the slot as Filled, makes the HISM instance visible,
@@ -212,11 +216,15 @@ public:
 
     /**
      * Fills the stack to the target level [0..1] with staggered scale animation.
-     * Values are clamped. Interrupts any in-progress fill animation.
+     * Values are clamped. Retargets pending fill while preserving existing animation progress and external reservations.
      * Use for cinematics or scenarios where resources don't fly in individually.
      */
     UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
     void SetFillLevel(float InFillLevel);
+
+    /** Applies edited settings immediately. Raw runtime property writes are also synchronized periodically. */
+    UFUNCTION(BlueprintCallable, Category = "SimpleComp|Stack")
+    void RefreshSettings();
 
     /**
      * Fired when a slot animation completes and an element is fully placed in the stack.
@@ -237,7 +245,7 @@ public:
     void OnActorSpawned(AActor* SpawnedActor, int32 SlotID);
 
     /**
-     * Fired when all active waves of actor spawning have completed and the stack has finished emptying.
+     * Fired when the scheduled spawn waves finish. Failed spawns remain filled and can be retried.
      */
     UFUNCTION(BlueprintImplementableEvent, Category = "SimpleComp|Stack")
     void OnSpawningCompleted();
@@ -306,7 +314,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Grid")
     bool bAutoCalculatePadding = true;
 
-    /** Whether instances in the stack should have collision enabled. Disable for massive performance gains when using inertia. */
+    /** Whether instances in the stack should have collision enabled. Disable when collision is unnecessary, especially for deforming stacks. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Grid")
     bool bEnableCollision = false;
 
@@ -423,9 +431,9 @@ public:
     // -----------------------------------------------------------------------
 
     /**
-     * When true, Tick monitors the FillLevel property and drives slot scale animations.
+     * When true, Tick monitors FillLevel; a shared timer drives the resulting scale animations.
      * Required for Sequencer integration — each change to FillLevel triggers slot animations.
-     * When false, no Tick overhead is incurred; use SetFillLevel() for code-driven animation.
+     * When false, fill monitoring does not require Tick; use SetFillLevel() for code-driven animation.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Animation")
     bool bEnableFillAnimation = false;
@@ -435,13 +443,13 @@ public:
      * at runtime or via Sequencer animates slots in or out with scale animation.
      * For code-driven stagger animation, use SetFillLevel() instead.
      */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Animation",
-        meta = (Interp, ClampMin = "0.0", ClampMax = "1.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Animation", Interp,
+        meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float FillLevel = 0.0f;
 
     /**
      * Total duration (seconds) of the scale-in animation for a newly placed element.
-     * Must be greater than the internal timer step (≈ 0.016 s).
+     * Zero or negative values complete on the next animation update.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Animation",
         meta = (ClampMin = "0.05", UIMin = "0.05"))
@@ -499,7 +507,10 @@ private:
     int32 FindIndexByTicket(int32 TicketID) const;
 
     void StartSlotAnimation(int32 SlotIndex);
-    void TickSlotAnimation(int32 SlotIndex);
+    void TickSlotAnimations();
+    void FreeSlot(int32 SlotIndex);
+    void RebuildTicketLookup();
+    uint32 CalculateSettingsHash() const;
     void ClearAllAnimations();
 
     void ProcessNextPendingSlot();
@@ -513,7 +524,20 @@ private:
     FSCStackSpawnSettings ActiveSpawnSettings;
 
     TArray<FSCSlotData> SlotStatuses;
+    // Every asynchronous operation uses a ticket, never a physical instance index.
+    TMap<int32, int32> TicketToIndex;
     TMap<int32, FSCSlotAnimState> ActiveAnimations;
+    TSet<int32> ConvertingTickets;
+    FTimerHandle AnimationTimerHandle;
+    FTimerHandle SettingsTimerHandle;
+    uint64 SpawnRevision = 0;
+    uint64 FillRevision = 0;
+    uint32 AppliedSettingsHash = 0;
+    FIntVector AppliedDimensions = FIntVector(1, 1, 1);
+    bool bRuntimeInitialized = false;
+    bool bShuttingDown = false;
+    bool bSynchronizingSettings = false;
+    ESCStackCurveMode AppliedCurveMode = ESCStackCurveMode::None;
 
     TQueue<int32> PendingFillTickets;
     FTimerHandle FillStaggerTimerHandle;
