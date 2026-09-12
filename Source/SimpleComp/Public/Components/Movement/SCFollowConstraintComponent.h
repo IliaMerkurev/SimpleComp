@@ -35,21 +35,21 @@ UCLASS(ClassGroup = (SimpleComp),
         float RopeLength = 500.0f;
 
         /** How smoothly the actor rotates toward its movement direction (0 = instant,
-         * higher = smoother). */
+         * higher = faster convergence). */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|CORE", Interp, meta = (ClampMin = "0.0"))
         float RotationSmoothness = 8.0f;
 
         // --- Axis Control (Location) ---
 
-        /** Settings for X axis movement. */
+        /** X world-axis offset from the target: Free follows the rope, Locked preserves owner position, Limited clamps to Min/Max. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Axis Control (Location)")
         FSCAxisSettings XAxisSettings;
 
-        /** Settings for Y axis movement. */
+        /** Y world-axis offset from the target; Limited clamps to Min/Max in centimeters. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Axis Control (Location)")
         FSCAxisSettings YAxisSettings;
 
-        /** Settings for Z axis movement. Locking this prevents vertical following. */
+        /** Z world-axis offset from the target. Locked prevents vertical following; Limited clamps to Min/Max. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Axis Control (Location)")
         FSCAxisSettings ZAxisSettings;
 
@@ -74,7 +74,7 @@ UCLASS(ClassGroup = (SimpleComp),
 
     private:
         /** Helper to process a single axis based on settings. */
-        float ProcessAxis(float CurrentVal, float TargetVal, const FSCAxisSettings& Settings);
+        double ProcessAxis(double CurrentVal, double TargetVal, const FSCAxisSettings& Settings);
 
         /** Tracks the location from the previous frame to calculate movement delta
          * for rotation. */

@@ -32,7 +32,7 @@ UCLASS(ClassGroup = (SimpleComp), meta = (BlueprintSpawnableComponent, DisplayNa
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Sphere Settings", Interp)
         bool bIsRotationActive = true;
 
-        /** Radius of the sphere in centimeters. Used to calculate rotation angle. */
+        /** World-space rolling radius in centimeters. Non-positive or non-finite values suspend rolling. */
         UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Sphere Settings", Interp)
         float SphereRadius = 50.0f;
 

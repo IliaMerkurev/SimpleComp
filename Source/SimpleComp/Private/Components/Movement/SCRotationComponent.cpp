@@ -1,6 +1,5 @@
 #include "Components/Movement/SCRotationComponent.h"
 #include "GameFramework/Actor.h"
-#include "Kismet/KismetMathLibrary.h"
 
 USCRotationComponent::USCRotationComponent()
 {
@@ -20,6 +19,14 @@ void USCRotationComponent::TickComponent(float DeltaTime, ELevelTick TickType,
     FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+    if (!FMath::IsFinite(DeltaTime) || DeltaTime <= 0.f)
+    {
+        return;
+    }
+    if (RotationMode != ESCRotationMode::ToForwardDelta || !bLookAtTarget)
+    {
+        LastLocation = GetComponentLocation();
+    }
     if (RotationMode == ESCRotationMode::Constant && bLookAtTarget)
     {
         AddLocalRotation(FQuat(RotationRate * DeltaTime));
@@ -97,7 +104,9 @@ FQuat USCRotationComponent::ComputeTargetQuat()
         FVector Direction = (TargetActor->GetActorLocation() + TargetLocationOffset) - GetComponentLocation();
         return Direction.IsNearlyZero() ? GetComponentQuat() : Direction.ToOrientationQuat();
     }
-    return GetComponentQuat();
+    LastTargetActor = nullptr;
+    const FVector Direction = TargetLocationOffset - GetComponentLocation();
+    return Direction.IsNearlyZero() ? GetComponentQuat() : Direction.ToOrientationQuat();
 }
 
 /**
@@ -122,7 +131,7 @@ FQuat USCRotationComponent::ComputeVelocityQuat()
         }
     }
 
-    if (CurrentVelocity.Size() < VelocityThreshold)
+    if (CurrentVelocity.SizeSquared() < FMath::Square(FMath::Max(0.f, VelocityThreshold)))
     {
         return GetComponentQuat();
     }
@@ -135,7 +144,7 @@ FQuat USCRotationComponent::ComputeForwardDeltaQuat()
     FVector CurrentLoc = GetComponentLocation();
     FVector Delta = CurrentLoc - LastLocation;
 
-    if (Delta.Size() > MinDistanceThreshold)
+    if (Delta.SizeSquared() > FMath::Square(FMath::Max(0.f, MinDistanceThreshold)))
     {
         LastLocation = CurrentLoc;
         return Delta.ToOrientationQuat();
@@ -163,7 +172,8 @@ float USCRotationComponent::ProcessAxis(float TargetAngle, const FSCAxisSettings
             return 0.0f;
 
         case ESCAxisMode::Limited:
-            return FMath::Clamp(FMath::UnwindDegrees(TargetAngle), Settings.Min, Settings.Max);
+            return FMath::Clamp(FMath::UnwindDegrees(TargetAngle), FMath::Min(Settings.Min, Settings.Max),
+                                FMath::Max(Settings.Min, Settings.Max));
 
         case ESCAxisMode::Free:
         default:
