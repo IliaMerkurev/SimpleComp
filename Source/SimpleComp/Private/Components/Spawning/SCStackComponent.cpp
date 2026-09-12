@@ -472,7 +472,8 @@ void USCStackComponent::RefreshSettings()
         AppliedSettingsHash = CalculateSettingsHash();
         RefreshStackTransforms();
     }
-    if (bEnableFillAnimation && FMath::IsFinite(FillLevel) && !FMath::IsNearlyEqual(FillLevel, LastAppliedFillLevel))
+    if (bEnableFillAnimation && FMath::IsFinite(FillLevel) &&
+        (!FMath::IsNearlyEqual(FillLevel, LastAppliedFillLevel) || !PendingFillTickets.IsEmpty()))
     {
         SetFillLevel(FillLevel);
     }
@@ -640,6 +641,9 @@ void USCStackComponent::RefreshStackTransforms()
         Transforms.Add(Transform);
     }
     StackHISM->BatchUpdateInstancesTransforms(0, Transforms, false, true, false);
+    // Game-world scale-only updates can leave the HISM cluster bounds at the hidden scale.
+    // MarkRenderStateDirty alone does not rebuild those bounds.
+    StackHISM->BuildTreeIfOutdated(true, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,7 +1088,7 @@ void USCStackComponent::SetFillLevel(float InFillLevel)
     LastAppliedFillLevel = FillLevel;
     const int32 Target = FMath::RoundToInt(static_cast<double>(FillLevel) * SlotStatuses.Num());
     // Repeated requests compare occupancy, not the last requested value (slots may have been extracted).
-    if (Target == TicketToIndex.Num())
+    if (Target == TicketToIndex.Num() && (!bEnableFillAnimation || PendingFillTickets.IsEmpty()))
     {
         return;
     }
@@ -1111,9 +1115,21 @@ void USCStackComponent::SetFillLevel(float InFillLevel)
             {
                 break;
             }
-            PendingFillTickets.Enqueue(Ticket);
+            if (bEnableFillAnimation)
+            {
+                // Sequencer already determines the fill timing. Adding stagger here makes the
+                // visible stack lag behind the authored level, especially with large layouts.
+                StartSlotAnimation(FindIndexByTicket(Ticket));
+            }
+            else
+            {
+                PendingFillTickets.Enqueue(Ticket);
+            }
         }
-        ProcessNextPendingSlot();
+        if (!bEnableFillAnimation)
+        {
+            ProcessNextPendingSlot();
+        }
     }
 }
 
@@ -1132,7 +1148,7 @@ void USCStackComponent::ProcessNextPendingSlot()
         {
             return;
         }
-        if (FMath::IsFinite(FillStaggerDelay) && FillStaggerDelay > 0.f)
+        if (!bEnableFillAnimation && FMath::IsFinite(FillStaggerDelay) && FillStaggerDelay > 0.f)
         {
             if (UWorld* World = GetWorld())
             {
@@ -1219,6 +1235,9 @@ void USCStackComponent::TickSlotAnimations()
             It.RemoveCurrent();
         }
     }
+    // Growing in place does not automatically rebuild HISM's cluster tree in a game world.
+    // Request one rebuild for the batch so instances cannot remain culled at their old tiny bounds.
+    StackHISM->BuildTreeIfOutdated(true, false);
     StackHISM->MarkRenderStateDirty();
     if (ActiveAnimations.IsEmpty())
     {

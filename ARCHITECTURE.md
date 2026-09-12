@@ -27,6 +27,10 @@ Random rotation/scale use the seed and live ticket, retaining variation through 
 
 `SetFillLevel` reconciles against actual occupancy and supports repeated requests after extraction. It cancels only its own pending fill reservations. External flight reservations count toward the target and are not discarded when the level decreases; occupancy can therefore exceed the target until those reservations are resolved.
 
+With `bEnableFillAnimation`, changes to FillLevel start all newly needed slots together, including calls through `SetFillLevel`. Sequencer supplies the fill timing; `FillStaggerDelay` does not add another queue. Individual elements still grow over `ScaleAnimationDuration`. With fill monitoring disabled, `SetFillLevel` retains staggered filling. Enabling monitoring drains/reconciles any outstanding stagger reservations on the next settings update.
+
+Scale-animation batches and full transform refreshes request an asynchronous HISM tree rebuild. Game-world scale-only updates can otherwise retain cluster bounds from hidden instances; marking render state dirty alone does not refresh that hierarchy. The owner confirmed that the reported fill-timing and visibility regressions are resolved in their scene; broader validation remains separate.
+
 Successful actor conversion removes the resource before actor-message/Blueprint callbacks. Failed spawning retains the resource and ticket. Completion means the scheduled waves were processed, not that every spawn succeeded. A conversion snapshots currently filled tickets; later arrivals are not added to those waves. An actor currently being constructed for conversion cannot also be extracted by a reentrant callback.
 
 Runtime resizing preserves tickets, reservations, scale progress, and queued operations. A smaller layout compacts occupied slots if they fit. Capacity below occupancy, or integer-overflowing capacity, is rejected and the last applied dimensions are restored. Mesh/settings edits preserve occupancy. There is no destructive rebuild API in 0.11.

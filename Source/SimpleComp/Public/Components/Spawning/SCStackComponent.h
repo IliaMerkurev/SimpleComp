@@ -215,7 +215,8 @@ public:
 
 
     /**
-     * Fills the stack to the target level [0..1] with staggered scale animation.
+     * Fills the stack to the target level [0..1] with scale animation.
+     * When bEnableFillAnimation is true, all newly needed slots start together; otherwise FillStaggerDelay applies.
      * Values are clamped. Retargets pending fill while preserving existing animation progress and external reservations.
      * Use for cinematics or scenarios where resources don't fly in individually.
      */
@@ -432,6 +433,7 @@ public:
 
     /**
      * When true, Tick monitors FillLevel; a shared timer drives the resulting scale animations.
+     * Newly needed slots start together without FillStaggerDelay, so the authored level controls timing.
      * Required for Sequencer integration — each change to FillLevel triggers slot animations.
      * When false, fill monitoring does not require Tick; use SetFillLevel() for code-driven animation.
      */
@@ -441,7 +443,7 @@ public:
     /**
      * Current fill level [0..1]. When bEnableFillAnimation is true, changing this property
      * at runtime or via Sequencer animates slots in or out with scale animation.
-     * For code-driven stagger animation, use SetFillLevel() instead.
+     * For code-driven stagger animation, disable bEnableFillAnimation and use SetFillLevel().
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Animation", Interp,
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -466,7 +468,8 @@ public:
     float InitialFillLevel = 0.0f;
 
     /**
-     * Time (seconds) between successive slot animations when filling via SetFillLevel().
+     * Time (seconds) between successive slot animations via SetFillLevel() when bEnableFillAnimation is false.
+     * Ignored when bEnableFillAnimation is true; animated FillLevel supplies its own timing.
      * Set to 0 to fill all slots simultaneously.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SimpleComp|Stack|Animation",
