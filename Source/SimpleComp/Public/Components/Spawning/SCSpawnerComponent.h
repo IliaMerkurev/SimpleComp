@@ -9,7 +9,7 @@
 
 
         /**
-         * SCSpawnerComponent: A high-performance spawning tool for Motion Design and
+         * SCSpawnerComponent: A spawning tool for Motion Design and
          * Prototyping. Supports box and ellipsoid volumes, flow control, and physical
          * launching.
          */
@@ -23,7 +23,7 @@
             public:
                 USCSpawnerComponent();
 
-                /** Starts the spawning process (handles both single burst and flow modes). */
+                /** Starts or restarts spawning. Live flow edits restart the schedule within 0.1 seconds; volume/class/launch edits apply to subsequent bursts. */
                 UFUNCTION(BlueprintCallable, CallInEditor, Category = "!Test", meta = (DisplayPriority = "0"))
                 virtual void Spawn();
 
@@ -32,6 +32,9 @@
                 virtual void StopSpawn();
 
             protected:
+                virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+                virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
+
                 // --- Spawner Settings ---
 
                 /** Select the volume shape: Box uses Component Extent, Radius uses custom
@@ -118,9 +121,8 @@
                     meta = (ToolTip = "Duration of one active spawn cycle. If 0, runs indefinitely."))
                 float FlowTimer = 0.f;
 
-                /** Delay between individual spawn bursts within a cycle. */
-                UPROPERTY(EditAnywhere, BlueprintReadWrite, Interp, Category = "SimpleComp|Spawner|Flow",
-                    meta = (ToolTip = "Delay between individual spawns during active cycle."))
+                /** Delay between individual spawn bursts. Non-positive or non-finite intervals produce one burst per active phase. */
+                UPROPERTY(EditAnywhere, BlueprintReadWrite, Interp, Category = "SimpleComp|Spawner|Flow")
                 float FlowInterval = 1.f;
 
                 /** After a flow cycle ends, wait this long before automatically restarting
@@ -138,6 +140,7 @@
 
                 /** Starts a new spawning cycle. */
                 void StartActivePhase();
+                void RefreshFlowSettings();
 
                 /** Handles the end of a Flow cycle and triggers Repeat logic. */
                 void OnFlowDurationExpired();
@@ -149,6 +152,13 @@
                 TSubclassOf<AActor> GetRandomSpawnClass() const;
 
                 bool bIsManuallyStopped = false;
+                bool bShuttingDown = false;
+                uint64 SpawnRevision = 0;
+                bool bAppliedFlow = false;
+                float AppliedFlowInterval = 0.f;
+                float AppliedFlowDuration = 0.f;
+                float AppliedRepeatInterval = 0.f;
+                FTimerHandle SettingsTimerHandle;
 
                 FTimerHandle FlowTimerHandle;
                 FTimerHandle FlowDurationHandle;
